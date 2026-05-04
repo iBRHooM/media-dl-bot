@@ -14,9 +14,39 @@ Built on `python-telegram-bot` v22.7 + `yt-dlp` + `Playwright`. Runs against a s
 
 ### 1. Prerequisites
 
-- Docker + Docker Compose
-- A Telegram bot token from [@BotFather](https://t.me/BotFather)
-- A Telegram `API_ID` and `API_HASH` from [my.telegram.org](https://my.telegram.org)
+- Docker + Docker Compose installed on your server
+- A Telegram account
+- Three Telegram credentials (steps below): `BOT_TOKEN`, `API_ID`, `API_HASH`
+
+#### Get `BOT_TOKEN` (from @BotFather)
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
+2. Send `/newbot` and follow the prompts to pick a name and username.
+3. BotFather replies with a token formatted like `123456789:ABCdef...`. Save it.
+
+#### Get `API_ID` and `API_HASH` (from my.telegram.org)
+
+These are **not** for the bot — they're for the self-hosted Telegram Bot API container, which is what raises the upload limit from 50 MB to 2 GB.
+
+1. Go to [my.telegram.org](https://my.telegram.org) and log in with your phone number.
+2. Click **API development tools**.
+3. Fill the form:
+   - **App title:** `Media DL Bot` (any name works)
+   - **Short name:** `mediadlbot` (alphanumeric, 5–32 chars)
+   - **URL:** leave blank
+   - **Platform:** Desktop
+   - **Description:** optional
+4. Click **Create application**.
+5. The next page shows `App api_id` (a number) and `App api_hash` (a hex string). Save both.
+
+> **Treat these credentials like passwords.** They identify a Telegram client and shouldn't be shared or committed anywhere public.
+
+#### Find your Telegram user ID (optional, for `ALLOWED_USERS`)
+
+If you want to restrict the bot to specific users (recommended), you'll need your numeric Telegram user ID:
+
+1. Open Telegram and message [@userinfobot](https://t.me/userinfobot).
+2. It replies with your user ID (a number like `123456789`).
 
 ### 2. Create the project directory
 
