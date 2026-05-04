@@ -24,7 +24,7 @@ Built on `python-telegram-bot` v22.7 + `yt-dlp` + `Playwright`. Runs against a s
 2. Send `/newbot` and follow the prompts to pick a name and username.
 3. BotFather replies with a token formatted like `123456789:ABCdef...`. Save it.
 
-#### Get `API_ID` and `API_HASH` (from my.telegram.org)
+#### Get `API_ID` and `API_HASH` (from [my.telegram.org](https://my.telegram.org))
 
 These are **not** for the bot — they're for the self-hosted Telegram Bot API container, which is what raises the upload limit from 50 MB to 2 GB.
 
