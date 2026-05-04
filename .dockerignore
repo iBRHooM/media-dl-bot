@@ -1,0 +1,41 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime artifacts (mounted in via volumes, not baked in)
+downloads/
+logs/
+*.log
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Documentation / project files (not needed in image)
+CHANGELOG.md
+context.md
+docker-compose.yaml
+docker-compose.dev.yaml
+.github/

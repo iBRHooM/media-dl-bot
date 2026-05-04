@@ -1,0 +1,12 @@
+# Local development override.
+# Builds the bot image from the Dockerfile in this repo instead of pulling from GHCR.
+#
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: media-dl-bot:dev
