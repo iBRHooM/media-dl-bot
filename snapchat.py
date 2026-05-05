@@ -63,29 +63,70 @@ def _classify_snap(item: dict, media_url: str) -> str:
 
 def _extract_stories_from_next_data(data: dict) -> list[dict]:
     """
-    Walk __NEXT_DATA__ to find the `snapList` array — i.e. the active
-    24-hour stories. The exact JSON path varies between profile types
-    (creator / business / personal), so we recursively search for any
-    object that has a `snapList` key.
+    Walk __NEXT_DATA__ to find any list of "snap" objects.
+
+    Snapchat's JSON schema varies by profile type (creator / business /
+    personal). We've seen at least these list keys carry stories:
+      - snapList
+      - storySnapList
+      - publicStorySnapList
+      - snaps
+    To stay robust against future renames, we ALSO consider any list whose
+    items are dicts with a `mediaUrl` field.
 
     Returns items shaped for download_story_media:
         [{ "url": str, "type": "video"|"photo", "index": int }, ...]
     """
     snaps_raw: list[dict] = []
+    candidate_keys = {
+        "snapList", "storySnapList", "publicStorySnapList", "snaps",
+    }
+
+    def _looks_like_snap(item) -> bool:
+        return (
+            isinstance(item, dict)
+            and isinstance(item.get("mediaUrl") or item.get("snapMediaUrl"), str)
+        )
 
     def _walk(node):
         if isinstance(node, dict):
-            if isinstance(node.get("snapList"), list):
-                snaps_raw.extend(node["snapList"])
-            for v in node.values():
-                _walk(v)
+            for key, value in node.items():
+                # Direct hit on a known story-list key.
+                if key in candidate_keys and isinstance(value, list):
+                    snaps_raw.extend(v for v in value if isinstance(v, dict))
+                # Heuristic: a list-valued field whose items look like snaps.
+                elif (
+                    isinstance(value, list)
+                    and value
+                    and all(_looks_like_snap(v) for v in value)
+                ):
+                    snaps_raw.extend(value)
+                else:
+                    _walk(value)
         elif isinstance(node, list):
             for v in node:
                 _walk(v)
 
     _walk(data)
 
-    # Dedupe by mediaUrl in case multiple snapList instances overlap.
+    # Diagnostic: if the schema doesn't contain anything we recognize,
+    # log the top-level page-prop keys so we can iterate.
+    if not snaps_raw:
+        try:
+            page_props = (
+                data.get("props", {}).get("pageProps", {})
+            )
+            logger.warning(
+                "No snap list found in __NEXT_DATA__. "
+                f"Top-level pageProps keys: {sorted(page_props.keys())}"
+            )
+        except Exception:
+            logger.warning(
+                "No snap list found in __NEXT_DATA__ and could not "
+                "introspect pageProps."
+            )
+
+    # Dedupe by mediaUrl in case multiple lists overlap.
     seen: set[str] = set()
     items: list[dict] = []
     for raw in snaps_raw:
