@@ -55,6 +55,13 @@ logging.basicConfig(
         logging.FileHandler(LOG_DIR / "bot.log"),
     ],
 )
+
+# Silence httpx's request logging — it includes the bot token in every URL,
+# which would leak the token into bot.log. We still see Telegram errors via
+# python-telegram-bot's own exception handling.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
