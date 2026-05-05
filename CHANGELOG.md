@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-05
+
+### Fixed
+- Bot crashed at import with `ModuleNotFoundError: No module named 'playwright'`. The Playwright base image bundles the module in a path the app's site-packages cannot import; restored `playwright==1.48.0` as an explicit runtime dependency.
+- Telegram Bot API healthcheck always failed because `localhost` resolved to IPv6 (`::1`) but the binary only binds IPv4. Switched the healthcheck to `127.0.0.1` and use `grep '404'` to validate the server is responding (Bot API has no `/` endpoint, so 404 is the expected response). Added a 30-second `start_period` to absorb cold-start time.
+
 ## [0.1.0] - 2026-05-04
 
 Initial beta release.
@@ -20,5 +26,6 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.0
