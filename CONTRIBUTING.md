@@ -10,19 +10,7 @@ nano .env
 docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
 ```
 
-This uses `docker-compose.dev.yaml` to build the image locally instead of pulling from GHCR. The build uses the official Playwright base image, which already ships Chromium and the Playwright Python package.
-
-## Running outside Docker (bare metal)
-
-Playwright is intentionally **not** listed in `pyproject.toml` dependencies because it's provided by the Docker base image. If you want to run the bot outside Docker for development or testing, install Playwright separately after `pip install .`:
-
-```bash
-pip install -e .
-pip install playwright==1.48.0
-playwright install chromium
-```
-
-You'll also need `ffmpeg` and `yt-dlp` available on your `$PATH`.
+This uses `docker-compose.dev.yaml` to build the image locally instead of pulling from GHCR.
 
 ## Releasing a new version
 
