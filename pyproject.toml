@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "media-dl-bot"
-version = "0.1.0"
+version = "0.1.1"
 description = "Self-hosted Telegram bot for downloading media from YouTube, TikTok, X, Facebook, Instagram, Twitch, and Snapchat."
 readme = "README.md"
 requires-python = ">=3.12"
