@@ -76,10 +76,11 @@ services:
     ports:
       - "8081:8081"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/ 2>&1 | grep -q '404'"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   bot:
     image: ghcr.io/ibrhoom/media-dl-bot:${IMAGE_TAG:-latest}
@@ -162,7 +163,7 @@ You should see:
 
 ```
 Using local Bot API: http://telegram-bot-api:8081
-Bot started (media-dl-bot v0.1.0).
+Bot started (media-dl-bot v0.1.1).
 ```
 
 Send `/start` to your bot in Telegram.
