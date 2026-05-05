@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-05
+
+### Fixed
+- **X / Twitter download still failed** with `.NA` extension on the v0.1.2 image. Twitter's HTTP-format variants (which carry both video and audio in one progressive mp4) report `ext=NA` to yt-dlp because the codec is unknown until probed, and `merge_output_format` doesn't trigger for single-stream downloads. Added the `FFmpegVideoRemuxer` postprocessor to remux any non-mp4 output (including `.NA`) into `.mp4` after download.
+
+### Changed
+- **Snapchat story extractor is now more permissive across profile types.** v0.1.2 only searched for the `snapList` JSON key, which doesn't appear on every profile type. The walker now also picks up `storySnapList`, `publicStorySnapList`, and `snaps`, plus any list whose items contain a `mediaUrl` field. When extraction still finds nothing, the top-level `pageProps` keys are logged so the schema can be iterated on.
+
 ## [0.1.2] - 2026-05-05
 
 ### Fixed
@@ -33,7 +41,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.0
