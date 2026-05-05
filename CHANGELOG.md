@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-05
+
+### Fixed
+- **YouTube videos and Shorts had no audio** when a quality was picked from the inline keyboard. yt-dlp's format selector was being given a video-only stream ID without instructions to merge audio. Now wraps the picked format as `<id>+bestaudio` so audio is merged in.
+- **X / Twitter downloads failed** with `[Errno 2] No such file or directory: '...NA'`. The unconditional `FFmpegVideoConvertor` postprocessor was silently failing on Twitter HLS streams, leaving an unparseable `.NA` placeholder. Removed the postprocessor (yt-dlp's `merge_output_format=mp4` already produces mp4 cleanly) and switched file resolution to read `info["requested_downloads"]` instead of guessing extensions, with a wider extension fallback list (`mp4, mkv, webm, mov, m4v, ts`) for older yt-dlp versions.
+- **Snapchat scraping always returned "user not found"**. Snapchat retired `story.snapchat.com/<username>` and migrated public profiles to `snapchat.com/@<username>` (with `snapchat.com/add/<username>` as an alias). Rewrote the scraper to load the new URL pattern, parse the embedded `__NEXT_DATA__` JSON, and extract the `snapList` array. Stories only — Spotlight is intentionally excluded.
+
 ## [0.1.1] - 2026-05-05
 
 ### Fixed
@@ -26,6 +33,7 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.0
