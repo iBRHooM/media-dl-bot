@@ -26,6 +26,18 @@ def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> di
         "no_warnings": True,
         "noplaylist": True,
         "merge_output_format": "mp4",
+        # Twitter's `http-*` format variants ship as progressive mp4 but with
+        # `ext=NA` because yt-dlp can't probe the codec without downloading.
+        # The FFmpegVideoRemuxer postprocessor renames/remuxes any non-mp4
+        # output (including `.NA`) to `.mp4` after the download completes.
+        # `merge_output_format` alone doesn't help because no merge happens
+        # for single-format http downloads.
+        "postprocessors": [
+            {
+                "key": "FFmpegVideoRemuxer",
+                "preferedformat": "mp4",
+            }
+        ],
     }
 
     if format_id:
