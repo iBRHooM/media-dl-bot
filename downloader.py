@@ -26,19 +26,22 @@ def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> di
         "no_warnings": True,
         "noplaylist": True,
         "merge_output_format": "mp4",
-        "postprocessors": [
-            {
-                "key": "FFmpegVideoConvertor",
-                "preferedformat": "mp4",
-            }
-        ],
     }
 
     if format_id:
-        opts["format"] = format_id
+        # User picked a specific quality. On YouTube and similar sites the
+        # format id usually refers to a video-only stream, so we ask yt-dlp
+        # to merge the best available audio with it. The `+ba/...` fallback
+        # chain handles platforms (Twitter HLS, Twitch) where the format
+        # already contains audio — yt-dlp will pick the first viable branch.
+        opts["format"] = (
+            f"{format_id}+bestaudio/"
+            f"{format_id}+ba/"
+            f"{format_id}"
+        )
     else:
-        # Best video+audio, no watermark for TikTok
-        opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        # Default: best video+audio (TikTok, Instagram, fallback path).
+        opts["format"] = "bestvideo*+bestaudio/best"
 
     return opts
 
@@ -100,6 +103,34 @@ async def fetch_formats(url: str) -> tuple[list[dict], str, int]:
     return quality_options, title, duration
 
 
+def _resolve_downloaded_path(info: dict, fallback_template: str) -> Optional[str]:
+    """
+    Find the actual file yt-dlp wrote to disk.
+
+    yt-dlp populates `requested_downloads` after download with the real
+    filepath(s) — that's the authoritative source. We fall back to scanning
+    common video extensions only if `requested_downloads` is missing
+    (older yt-dlp versions or unusual extractors).
+    """
+    requested = info.get("requested_downloads") or []
+    for entry in requested:
+        path = entry.get("filepath")
+        if path and os.path.exists(path):
+            return path
+
+    # Legacy fallback: derive from the prepare_filename template and try
+    # common video extensions. We use a wide list because some extractors
+    # (e.g. Twitter HLS) produce mp4 directly while others go through
+    # webm/mkv first.
+    base = os.path.splitext(fallback_template)[0]
+    for ext in ("mp4", "mkv", "webm", "mov", "m4v", "ts"):
+        candidate = f"{base}.{ext}"
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
 async def download_media(url: str, format_id: Optional[str] = None) -> tuple[str, str]:
     """
     Download media from URL.
@@ -117,14 +148,14 @@ async def download_media(url: str, format_id: Optional[str] = None) -> tuple[str
     def _download():
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            # yt-dlp may change extension after merge
-            base = os.path.splitext(filename)[0]
-            for ext in ["mp4", "mkv", "webm", "mov"]:
-                candidate = f"{base}.{ext}"
-                if os.path.exists(candidate):
-                    return candidate, info.get("title", "Unknown")
-            return filename, info.get("title", "Unknown")
+            fallback = ydl.prepare_filename(info)
+            path = _resolve_downloaded_path(info, fallback)
+            if not path:
+                raise FileNotFoundError(
+                    f"Download appeared to succeed but no output file was found "
+                    f"(template: {fallback})"
+                )
+            return path, info.get("title", "Unknown")
 
     try:
         file_path, title = await loop.run_in_executor(None, _download)
