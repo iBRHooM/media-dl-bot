@@ -25,6 +25,11 @@ def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> di
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # `noplaylist` doesn't always cover Twitter quote-tweets where both
+        # the outer tweet and the quoted tweet have video — yt-dlp may still
+        # treat them as a 2-entry playlist. `playlist_items='1'` forces
+        # only the first entry (the outer tweet's video) to be downloaded.
+        "playlist_items": "1",
         "merge_output_format": "mp4",
         # Twitter's `http-*` format variants ship as progressive mp4 but with
         # `ext=NA` because yt-dlp can't probe the codec without downloading.
