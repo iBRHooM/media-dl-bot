@@ -172,10 +172,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def handle_snapchat(
     update: Update, context: ContextTypes.DEFAULT_TYPE, username: str
 ) -> None:
-    status = await update.message.reply_text(f"👻 Fetching stories for *@{escape_markdown(username)}*...", parse_mode=ParseMode.MARKDOWN)
-    downloaded = []
-
+    # Outermost try wraps EVERYTHING — including the initial reply_text and
+    # the cleanup phase. Without this, exceptions raised before `status` is
+    # bound (e.g. a Markdown-parse BadRequest on the "Fetching..." message)
+    # propagate to ptb's default handler, which logs them under a different
+    # logger name and produces a generic Telegram-side error to the user.
+    # We saw exactly that in v0.1.4 logs: a Snapchat error reached the user
+    # but no traceback appeared under the __main__ logger.
+    status = None
+    downloaded: list[tuple[str, str]] = []
     try:
+        status = await update.message.reply_text(
+            f"👻 Fetching stories for *@{escape_markdown(username)}*...",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
         media_items = await fetch_snapchat_stories(username)
         await status.edit_text(f"⬇️ Downloading {len(media_items)} story item(s)...")
         downloaded = await download_story_media(media_items, username)
@@ -206,10 +217,27 @@ async def handle_snapchat(
         await status.delete()
 
     except (ValueError, RuntimeError) as e:
-        await status.edit_text(f"❌ {e}")
-    except Exception as e:
-        logger.exception(f"Unexpected error for snapchat @{username}")
-        await status.edit_text("❌ An unexpected error occurred. Please try again.")
+        # Expected failure modes raised by the scraper (no profile, no
+        # stories, etc.). Show the message verbatim to the user.
+        if status is not None:
+            await status.edit_text(f"❌ {e}")
+        else:
+            await update.message.reply_text(f"❌ {e}")
+    except Exception:
+        # Unexpected. Log the full traceback under THIS logger so it shows
+        # up in `bot.log` and in `docker compose logs bot`. Do NOT swallow
+        # silently — we explicitly want to see what's going wrong with
+        # Snapchat scraping in v0.1.5.
+        logger.exception(f"Unexpected error in handle_snapchat for @{username}")
+        msg = "❌ An unexpected error occurred. Please try again."
+        try:
+            if status is not None:
+                await status.edit_text(msg)
+            else:
+                await update.message.reply_text(msg)
+        except TelegramError:
+            # If even sending the error message fails, give up gracefully.
+            pass
     finally:
         await cleanup_files(*[fp for fp, _ in downloaded])
 
@@ -352,6 +380,23 @@ async def _send_video(
         await cleanup_files(file_path)
 
 
+# ── Global error handler ──────────────────────────────────────────────────────
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Catch-all for exceptions that escape individual handlers.
+
+    Without this, ptb's default behaviour is to log the exception under its
+    own logger name (`telegram.ext.Application`) at ERROR level — but only
+    a one-line summary, not the full traceback. We saw exactly that gap in
+    v0.1.4: a Snapchat handler exception produced an error message in the
+    user's Telegram client but left NO usable trace in `docker compose
+    logs bot`. This handler ensures every unhandled exception is logged
+    with full traceback under the `__main__` logger.
+    """
+    logger.exception("Unhandled exception in handler", exc_info=context.error)
+
+
 # ── App bootstrap ─────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -368,6 +413,7 @@ def main() -> None:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(handle_quality_callback, pattern=r"^dl\|"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_error_handler(on_error)
 
     logger.info(f"Bot started (media-dl-bot v{__version__}).")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
