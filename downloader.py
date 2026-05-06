@@ -6,6 +6,7 @@ import os
 import uuid
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 import yt_dlp
 
@@ -57,8 +58,30 @@ def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> di
             f"{format_id}"
         )
     else:
-        # Default: best video+audio (TikTok, Instagram, fallback path).
-        opts["format"] = "bestvideo*+bestaudio/best"
+        # Default selector. Branch order matters — yt-dlp picks the first
+        # branch that resolves to a valid stream:
+        #
+        #   1. HLS video + HLS audio. Twitter's `http-*` progressive variants
+        #      report `vcodec=unknown,acodec=unknown,ext=NA`, which causes
+        #      `bestvideo*+bestaudio` to either skip them (no codec info) or
+        #      mux them into a `.NA` container that yt-dlp can't finalize.
+        #      The HLS streams DO have proper codec metadata and merge into
+        #      mp4 cleanly via `merge_output_format`.
+        #
+        #   2. Generic best video + best audio merge — covers YouTube, FB,
+        #      Twitch, and most non-Twitter sites.
+        #
+        #   3. Single-stream best with mp4 preference — TikTok, Instagram,
+        #      and any platform that ships progressive mp4 with proper codec
+        #      info (so it doesn't fall into the .NA trap).
+        #
+        #   4. Last resort: yt-dlp's plain `best` selector.
+        opts["format"] = (
+            "bv*[protocol*=m3u8]+ba[protocol*=m3u8]/"
+            "bv*+ba/"
+            "b[ext=mp4]/"
+            "b"
+        )
 
     return opts
 
@@ -71,8 +94,26 @@ async def fetch_formats(url: str) -> tuple[list[dict], str, int]:
     loop = asyncio.get_event_loop()
 
     def _fetch():
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        # `playlist_items='1'` is critical for Twitter quote-tweets: yt-dlp
+        # treats the outer tweet + quoted tweet as a 2-entry playlist even
+        # with `noplaylist=True`. Without this, `extract_info` returns a
+        # playlist dict (no top-level `formats` field), our format scan
+        # finds nothing, and we fall through to the auto-best path —
+        # exactly the bug that caused v0.1.4 to still fail on quote-tweets.
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "playlist_items": "1",
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            # If we still got a playlist back (some extractors ignore both
+            # noplaylist and playlist_items), unwrap to the first entry.
+            if info.get("_type") == "playlist":
+                entries = info.get("entries") or []
+                if entries:
+                    info = entries[0]
             return info
 
     try:
@@ -120,14 +161,25 @@ async def fetch_formats(url: str) -> tuple[list[dict], str, int]:
     return quality_options, title, duration
 
 
-def _resolve_downloaded_path(info: dict, fallback_template: str) -> Optional[str]:
+def _resolve_downloaded_path(
+    info: dict,
+    fallback_template: str,
+    unique_prefix: str,
+    downloads_dir: Path,
+) -> Optional[str]:
     """
     Find the actual file yt-dlp wrote to disk.
 
-    yt-dlp populates `requested_downloads` after download with the real
-    filepath(s) — that's the authoritative source. We fall back to scanning
-    common video extensions only if `requested_downloads` is missing
-    (older yt-dlp versions or unusual extractors).
+    Resolution order (most authoritative first):
+      1. `info["requested_downloads"][i]["filepath"]` — yt-dlp populates
+         this AFTER postprocessors run, so it reflects post-remux paths.
+      2. Scan the downloads directory for our unique-prefix files. This is
+         immune to extension surprises (e.g. Twitter `.NA` outputs, or
+         remuxer leaving both `.NA` and `.mp4` behind). When multiple
+         matches exist, mp4 wins because that's what we asked for via
+         `merge_output_format` and `FFmpegVideoRemuxer`.
+      3. Legacy template-based scan — last resort for older yt-dlp
+         versions where `requested_downloads` may be absent.
     """
     requested = info.get("requested_downloads") or []
     for entry in requested:
@@ -135,10 +187,15 @@ def _resolve_downloaded_path(info: dict, fallback_template: str) -> Optional[str
         if path and os.path.exists(path):
             return path
 
-    # Legacy fallback: derive from the prepare_filename template and try
-    # common video extensions. We use a wide list because some extractors
-    # (e.g. Twitter HLS) produce mp4 directly while others go through
-    # webm/mkv first.
+    # Scan by unique prefix — extension-agnostic. Sort to make selection
+    # deterministic when multiple files exist.
+    matches = sorted(downloads_dir.glob(f"{unique_prefix}_*"))
+    if matches:
+        mp4_matches = [m for m in matches if m.suffix.lower() == ".mp4"]
+        chosen = mp4_matches[0] if mp4_matches else matches[0]
+        return str(chosen)
+
+    # Last-ditch: derive from the prepare_filename template.
     base = os.path.splitext(fallback_template)[0]
     for ext in ("mp4", "mkv", "webm", "mov", "m4v", "ts"):
         candidate = f"{base}.{ext}"
@@ -166,11 +223,16 @@ async def download_media(url: str, format_id: Optional[str] = None) -> tuple[str
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             fallback = ydl.prepare_filename(info)
-            path = _resolve_downloaded_path(info, fallback)
+            path = _resolve_downloaded_path(
+                info,
+                fallback_template=fallback,
+                unique_prefix=unique,
+                downloads_dir=downloads_dir,
+            )
             if not path:
                 raise FileNotFoundError(
                     f"Download appeared to succeed but no output file was found "
-                    f"(template: {fallback})"
+                    f"(template: {fallback}, prefix: {unique})"
                 )
             return path, info.get("title", "Unknown")
 
