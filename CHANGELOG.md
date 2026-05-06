@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-05-06
+
+### Fixed
+- **Snapchat scraping returned zero stories on every profile** since v0.1.2. The walker was looking for top-level keys like `mediaUrl` and `mediaType` on each snap, but Snapchat's actual schema nests the URL inside `snapUrls.mediaUrl` and uses an integer enum `snapMediaType` (0=image, 1=video). Verified the real path against `pageProps.story.snapList` on three profile types (news/business `iamoktsr`, creator `ifiii99`, personal `rola_lola94`); replaced the recursive walker with a targeted reader that only reads from the verified path. Active stories now download correctly across all profile types.
+
 ## [0.1.5] - 2026-05-06
 
 ### Fixed
@@ -60,7 +65,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.3
