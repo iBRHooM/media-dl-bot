@@ -39,109 +39,97 @@ PROFILE_URL_PATTERNS = (
 TIMEOUT_MS = 30_000
 
 
-def _classify_snap(item: dict, media_url: str) -> str:
+def _classify_snap(snap: dict) -> str:
     """
-    Determine if a snap is video or photo.
+    Determine if a snap is video or photo from `snapMediaType`.
 
-    Snapchat sometimes provides a `mediaType` field; otherwise we infer
-    from the URL/extension hints.
+    Verified enum (against snapchat.com/@<username> __NEXT_DATA__ on
+    multiple profile types):
+      0 = IMAGE / photo
+      1 = VIDEO
+
+    Unknown enum values fall back to "video" since most modern stories
+    are video — and we log so the mapping can be extended if Snapchat
+    introduces new types.
     """
-    declared = (item.get("mediaType") or "").upper()
-    if declared == "VIDEO":
-        return "video"
-    if declared in ("IMAGE", "PHOTO"):
+    media_type = snap.get("snapMediaType")
+    if media_type == 0:
         return "photo"
-
-    lowered = media_url.lower()
-    if any(t in lowered for t in (".mp4", "video", "dfmedia")):
+    if media_type == 1:
         return "video"
-    if any(t in lowered for t in (".jpg", ".jpeg", ".png", ".webp")):
-        return "photo"
-    # Snapchat default: most modern stories are video.
+    logger.warning(
+        f"Unknown snapMediaType={media_type!r} — defaulting to video"
+    )
     return "video"
 
 
 def _extract_stories_from_next_data(data: dict) -> list[dict]:
     """
-    Walk __NEXT_DATA__ to find any list of "snap" objects.
+    Read the active 24-hour story list from Snapchat's __NEXT_DATA__.
 
-    Snapchat's JSON schema varies by profile type (creator / business /
-    personal). We've seen at least these list keys carry stories:
-      - snapList
-      - storySnapList
-      - publicStorySnapList
-      - snaps
-    To stay robust against future renames, we ALSO consider any list whose
-    items are dicts with a `mediaUrl` field.
+    Verified path (v0.1.6):
+        data["props"]["pageProps"]["story"]["snapList"]
+
+    Each item:
+        {
+            "snapIndex": 0,
+            "snapMediaType": 1,                  # 0=IMAGE, 1=VIDEO
+            "snapUrls": {
+                "mediaUrl": "https://cf-st.sc-cdn.net/...",
+                "mediaPreviewUrl": {"value": "..."},  # 256px thumbnail
+                "overlayUrl": null,
+                "attachmentUrl": null
+            },
+            ...
+        }
 
     Returns items shaped for download_story_media:
         [{ "url": str, "type": "video"|"photo", "index": int }, ...]
+
+    Notes on what we deliberately skip:
+      - `pageProps.curatedHighlights[*].snapList` and
+        `pageProps.spotlightHighlights[*].snapList` — these are durable
+        saved content, not 24-hour stories. Out of scope.
+      - `mediaPreviewUrl` — that's a 256px thumbnail; we want the full
+        media URL.
     """
-    snaps_raw: list[dict] = []
-    candidate_keys = {
-        "snapList", "storySnapList", "publicStorySnapList", "snaps",
-    }
+    page_props = data.get("props", {}).get("pageProps", {})
+    story = page_props.get("story")
 
-    def _looks_like_snap(item) -> bool:
-        return (
-            isinstance(item, dict)
-            and isinstance(item.get("mediaUrl") or item.get("snapMediaUrl"), str)
+    if not isinstance(story, dict):
+        logger.warning(
+            f"Snapchat: pageProps.story is missing or wrong type "
+            f"({type(story).__name__}). Schema may have changed."
         )
+        return []
 
-    def _walk(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                # Direct hit on a known story-list key.
-                if key in candidate_keys and isinstance(value, list):
-                    snaps_raw.extend(v for v in value if isinstance(v, dict))
-                # Heuristic: a list-valued field whose items look like snaps.
-                elif (
-                    isinstance(value, list)
-                    and value
-                    and all(_looks_like_snap(v) for v in value)
-                ):
-                    snaps_raw.extend(value)
-                else:
-                    _walk(value)
-        elif isinstance(node, list):
-            for v in node:
-                _walk(v)
+    snap_list = story.get("snapList")
+    if not isinstance(snap_list, list):
+        logger.warning(
+            f"Snapchat: pageProps.story.snapList is missing or wrong type "
+            f"({type(snap_list).__name__}). Schema may have changed."
+        )
+        return []
 
-    _walk(data)
+    logger.info(f"Snapchat: pageProps.story.snapList has {len(snap_list)} items")
 
-    # Diagnostic: if the schema doesn't contain anything we recognize,
-    # log the top-level page-prop keys so we can iterate.
-    if not snaps_raw:
-        try:
-            page_props = (
-                data.get("props", {}).get("pageProps", {})
-            )
-            logger.warning(
-                "No snap list found in __NEXT_DATA__. "
-                f"Top-level pageProps keys: {sorted(page_props.keys())}"
-            )
-        except Exception:
-            logger.warning(
-                "No snap list found in __NEXT_DATA__ and could not "
-                "introspect pageProps."
-            )
-
-    # Dedupe by mediaUrl in case multiple lists overlap.
-    seen: set[str] = set()
     items: list[dict] = []
-    for raw in snaps_raw:
-        media_url = raw.get("mediaUrl") or raw.get("snapMediaUrl")
-        if not media_url or not isinstance(media_url, str):
+    for snap in snap_list:
+        if not isinstance(snap, dict):
             continue
-        if not media_url.startswith("http"):
+
+        snap_urls = snap.get("snapUrls")
+        if not isinstance(snap_urls, dict):
             continue
-        if media_url in seen:
+
+        media_url = snap_urls.get("mediaUrl")
+        if not isinstance(media_url, str) or not media_url.startswith("http"):
             continue
-        seen.add(media_url)
+
         items.append({
             "url": media_url,
-            "type": _classify_snap(raw, media_url),
-            "index": raw.get("snapIndex", len(items)),
+            "type": _classify_snap(snap),
+            "index": snap.get("snapIndex", len(items)),
         })
 
     return items
