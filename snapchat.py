@@ -156,81 +156,111 @@ async def fetch_snapchat_stories(username: str) -> list[dict]:
     active stories.
     Raises RuntimeError on unexpected scraping failures.
     """
+    logger.info(f"Snapchat: starting scrape for @{username}")
     media_items: list[dict] = []
     found_profile = False
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
-        )
-        try:
-            context = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 1800},
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"],
             )
-            page = await context.new_page()
-
-            for pattern in PROFILE_URL_PATTERNS:
-                profile_url = pattern.format(username=username)
-                try:
-                    response = await page.goto(
-                        profile_url,
-                        timeout=TIMEOUT_MS,
-                        wait_until="domcontentloaded",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Could not load {profile_url}: {e}"
-                    )
-                    continue
-
-                if response and response.status == 404:
-                    # Profile doesn't exist on this URL pattern — try the next.
-                    continue
-
-                found_profile = True
-
-                next_data_raw = await page.evaluate(
-                    """
-                    () => {
-                        const el = document.getElementById('__NEXT_DATA__');
-                        return el ? el.textContent : null;
-                    }
-                    """
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1280, "height": 1800},
                 )
+                page = await context.new_page()
 
-                if not next_data_raw:
-                    logger.warning(
-                        f"No __NEXT_DATA__ found at {profile_url}"
-                    )
-                    continue
+                for pattern in PROFILE_URL_PATTERNS:
+                    profile_url = pattern.format(username=username)
+                    logger.info(f"Snapchat: trying {profile_url}")
+                    try:
+                        response = await page.goto(
+                            profile_url,
+                            timeout=TIMEOUT_MS,
+                            wait_until="domcontentloaded",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Snapchat: page.goto failed for {profile_url}: {e}"
+                        )
+                        continue
 
-                try:
-                    data = json.loads(next_data_raw)
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        f"Could not parse __NEXT_DATA__ at {profile_url}: {e}"
-                    )
-                    continue
-
-                media_items = _extract_stories_from_next_data(data)
-                if media_items:
+                    status_code = response.status if response else None
                     logger.info(
-                        f"Found {len(media_items)} active stories for "
-                        f"@{username}"
+                        f"Snapchat: {profile_url} returned HTTP {status_code}"
                     )
-                    break  # success — no need to try the other URL pattern
-                # Page loaded but no snapList → user has no active stories.
-                # Don't try the fallback pattern; the answer is the same.
-                break
 
-        finally:
-            await browser.close()
+                    if response and response.status == 404:
+                        # Profile doesn't exist on this URL pattern — try
+                        # the next.
+                        continue
+
+                    found_profile = True
+
+                    next_data_raw = await page.evaluate(
+                        """
+                        () => {
+                            const el = document.getElementById('__NEXT_DATA__');
+                            return el ? el.textContent : null;
+                        }
+                        """
+                    )
+
+                    if not next_data_raw:
+                        logger.warning(
+                            f"Snapchat: no __NEXT_DATA__ found at {profile_url}"
+                        )
+                        continue
+
+                    logger.info(
+                        f"Snapchat: __NEXT_DATA__ size = "
+                        f"{len(next_data_raw)} chars"
+                    )
+
+                    try:
+                        data = json.loads(next_data_raw)
+                    except json.JSONDecodeError as e:
+                        logger.warning(
+                            f"Snapchat: could not parse __NEXT_DATA__ at "
+                            f"{profile_url}: {e}"
+                        )
+                        continue
+
+                    media_items = _extract_stories_from_next_data(data)
+                    if media_items:
+                        logger.info(
+                            f"Snapchat: found {len(media_items)} active "
+                            f"stories for @{username}"
+                        )
+                        # Success — no need to try the other URL pattern.
+                        break
+                    # Page loaded but no snapList → user has no active
+                    # stories. Don't try the fallback pattern; the answer
+                    # is the same.
+                    logger.info(
+                        f"Snapchat: no stories extracted at {profile_url}; "
+                        f"not falling through to other URL patterns"
+                    )
+                    break
+
+            finally:
+                await browser.close()
+    except Exception:
+        # Re-raise as RuntimeError so the caller's `except (ValueError,
+        # RuntimeError)` branch catches it cleanly. Full traceback is
+        # already logged by main.py's global error handler if this leaks.
+        logger.exception(f"Snapchat: scraping crashed for @{username}")
+        raise RuntimeError(
+            f"Snapchat scraping failed for '{username}'. Check bot logs "
+            f"for details."
+        )
 
     if not found_profile:
         raise ValueError(
