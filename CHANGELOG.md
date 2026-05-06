@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-06
+
+### Fixed
+- **X / Twitter quote-tweets still failed** with `.NA` extension on v0.1.4. The HTTP-format variants Twitter ships report `vcodec=unknown`/`acodec=unknown`, which causes the `bestvideo*+bestaudio` selector to either skip them or mux them into a `.NA` container the muxer can't finalize. Rewrote the default format selector to prefer HLS-merged downloads (HLS streams have proper codec metadata and merge into mp4 cleanly) with progressive mp4 as a fallback for platforms like TikTok and Instagram. Also added `playlist_items='1'` to `fetch_formats` — without it, the format scan on quote-tweets returned a playlist dict (no top-level `formats` field), the bot saw "no qualities" and fell through to the auto-best path that hit the `.NA` bug.
+- **File-resolution scan was extension-dependent.** When yt-dlp wrote a non-mp4 file (or left a `.NA` placeholder alongside the remuxer's `.mp4`), the resolver could either miss the real output or pick the wrong one. Resolution now scans the downloads directory by the per-download unique prefix and prefers `.mp4` when multiple matches exist — extension-agnostic, deterministic, and safe under concurrent downloads thanks to the unique prefix.
+
+### Added
+- **Global error handler** (`Application.add_error_handler`). Without this, ptb's default behaviour was to log unhandled exceptions under its own logger name at ERROR level with no traceback. v0.1.4 had a Snapchat handler exception that produced an error message in Telegram but left no usable trace in `docker compose logs bot`. The new handler logs every unhandled exception with full traceback under the `__main__` logger.
+- **Detailed Snapchat scraping logs** (`fetch_snapchat_stories`). Each URL pattern attempt, HTTP status, `__NEXT_DATA__` size, and parse outcome now logs at INFO so we can see exactly where scraping bails out. Catastrophic Playwright failures are re-raised as `RuntimeError` so they surface to the user via the existing handler, instead of crashing into the global error handler with a generic message.
+- **`handle_snapchat` outermost try/except** now wraps the initial `reply_text` (Markdown parsing of the username could raise) and the cleanup phase, eliminating any code path that can leak an exception unlogged.
+
 ## [0.1.4] - 2026-05-05
 
 ### Security
@@ -49,7 +60,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.2
