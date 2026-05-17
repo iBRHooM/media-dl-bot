@@ -114,6 +114,7 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
     logger.info(f"Snapchat: pageProps.story.snapList has {len(snap_list)} items")
 
     items: list[dict] = []
+    total = len(snap_list)
     for snap in snap_list:
         if not isinstance(snap, dict):
             continue
@@ -126,10 +127,28 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
         if not isinstance(media_url, str) or not media_url.startswith("http"):
             continue
 
+        # `timestampInSec` is a nested {"value": "<unix_seconds_string>"}.
+        # Defensive parse — Snapchat occasionally returns it as a plain
+        # int or omits it entirely on older snaps.
+        ts_raw = snap.get("timestampInSec")
+        timestamp = 0
+        if isinstance(ts_raw, dict):
+            try:
+                timestamp = int(ts_raw.get("value", 0))
+            except (TypeError, ValueError):
+                timestamp = 0
+        elif isinstance(ts_raw, (int, str)):
+            try:
+                timestamp = int(ts_raw)
+            except (TypeError, ValueError):
+                timestamp = 0
+
         items.append({
             "url": media_url,
             "type": _classify_snap(snap),
             "index": snap.get("snapIndex", len(items)),
+            "total": total,
+            "timestamp": timestamp,
         })
 
     return items
@@ -268,12 +287,19 @@ async def fetch_snapchat_stories(username: str) -> list[dict]:
 
 async def download_story_media(
     media_items: list[dict], username: str
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, int, int, int]]:
     """
-    Download story media files. Returns list of (file_path, media_type) tuples.
+    Download story media files.
+
+    Returns a list of (file_path, media_type, index, total, timestamp)
+    tuples. `index` is the snap's `snapIndex` (Snapchat's own 0-based
+    numbering for the story), `total` is the total number of snaps in
+    the story (so captions can read "3 of 7" honestly even if some
+    snaps failed to download), and `timestamp` is the Unix-epoch
+    seconds when the snap was posted (0 if Snapchat didn't return one).
     """
     downloads_dir = get_downloads_dir()
-    downloaded: list[tuple[str, str]] = []
+    downloaded: list[tuple[str, str, int, int, int]] = []
 
     headers = {
         "User-Agent": (
@@ -289,6 +315,8 @@ async def download_story_media(
             url = item["url"]
             media_type = item["type"]
             index = item["index"]
+            total = item.get("total", len(media_items))
+            timestamp = item.get("timestamp", 0)
             ext = "mp4" if media_type == "video" else "jpg"
             # Include media_type in filename: video and photo can share an index.
             filename = downloads_dir / f"snap_{username}_{media_type}_{index}.{ext}"
@@ -306,7 +334,9 @@ async def download_story_media(
                     async with aiofiles.open(filename, "wb") as f:
                         async for chunk in resp.content.iter_chunked(1024 * 64):
                             await f.write(chunk)
-                downloaded.append((str(filename), media_type))
+                downloaded.append(
+                    (str(filename), media_type, index, total, timestamp)
+                )
                 logger.debug(f"Downloaded story item {index}: {filename}")
             except Exception as e:
                 logger.warning(
