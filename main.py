@@ -9,6 +9,8 @@ Supported:
 import os
 import logging
 from pathlib import Path
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from importlib.metadata import version, PackageNotFoundError
 
 from telegram import (
@@ -83,6 +85,21 @@ ALLOWED_USERS: set[int] = (
     if _allowed_raw
     else set()
 )
+
+# Timezone for displaying Snapchat post timestamps in captions.
+# Defaults to Asia/Riyadh (the operator's locale). Override via TZ env var
+# using any IANA name, e.g. TZ=America/New_York or TZ=UTC.
+# Invalid values are caught here at startup rather than at caption time.
+_tz_name = os.environ.get("TZ", "Asia/Riyadh").strip() or "Asia/Riyadh"
+try:
+    DISPLAY_TZ = ZoneInfo(_tz_name)
+    logger.info(f"Display timezone: {_tz_name}")
+except ZoneInfoNotFoundError:
+    logger.warning(
+        f"Unknown timezone {_tz_name!r} — falling back to UTC. "
+        f"Use an IANA timezone name (e.g. Asia/Riyadh, America/New_York)."
+    )
+    DISPLAY_TZ = timezone.utc
 
 PLATFORM_LABELS = {
     "youtube": "YouTube",
@@ -169,6 +186,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await handle_auto_download(update, context, platform, target)
 
 
+def _build_snap_caption(username: str, index: int, total: int, timestamp: int) -> str:
+    """
+    Build the three-line caption attached to each Snapchat story item.
+
+    Format:
+        👻 @username
+        N of M
+        YYYY-MM-DD HH:MMam/pm
+
+    `index` is the snap's `snapIndex` from Snapchat (0-based), shown to
+    the user as `index+1` so gaps (failed downloads) are visible —
+    matches what they would see in the Snapchat app.
+
+    `timestamp` is Unix seconds when the snap was posted. Rendered in
+    DISPLAY_TZ (configurable via the TZ env var). If 0 (Snapchat didn't
+    return a timestamp), the date line is omitted rather than showing a
+    bogus 1970-01-01 value.
+    """
+    lines = [f"👻 @{username}", f"{index + 1} of {total}"]
+    if timestamp > 0:
+        when = datetime.fromtimestamp(timestamp, tz=DISPLAY_TZ)
+        # 12-hour clock with lowercase am/pm suffix:
+        #   "2026-04-25 01:56pm"
+        date_part = when.strftime("%Y-%m-%d %I:%M")
+        ampm = when.strftime("%p").lower()
+        lines.append(f"{date_part}{ampm}")
+    return "\n".join(lines)
+
+
 async def handle_snapchat(
     update: Update, context: ContextTypes.DEFAULT_TYPE, username: str
 ) -> None:
@@ -180,7 +226,7 @@ async def handle_snapchat(
     # We saw exactly that in v0.1.4 logs: a Snapchat error reached the user
     # but no traceback appeared under the __main__ logger.
     status = None
-    downloaded: list[tuple[str, str]] = []
+    downloaded: list[tuple[str, str, int, int, int]] = []
     try:
         status = await update.message.reply_text(
             f"👻 Fetching stories for *@{escape_markdown(username)}*...",
@@ -197,19 +243,21 @@ async def handle_snapchat(
 
         await status.edit_text(f"📤 Sending {len(downloaded)} item(s)...")
 
-        for file_path, media_type in downloaded:
+        for file_path, media_type, index, total, timestamp in downloaded:
             file_size = os.path.getsize(file_path)
             if file_size > MAX_FILE_SIZE_BYTES:
                 await update.message.reply_text(
                     f"⚠️ Skipped one item — too large ({sizeof_fmt(file_size)})."
                 )
                 continue
+
+            caption = _build_snap_caption(username, index, total, timestamp)
             try:
                 with open(file_path, "rb") as f:
                     if media_type == "video":
-                        await update.message.reply_video(f, caption=f"👻 @{username}")
+                        await update.message.reply_video(f, caption=caption)
                     else:
-                        await update.message.reply_photo(f, caption=f"👻 @{username}")
+                        await update.message.reply_photo(f, caption=caption)
             except TelegramError as e:
                 logger.error(f"Failed to send story item: {e}")
                 await update.message.reply_text(f"❌ Failed to send one item: {e}")
@@ -239,7 +287,7 @@ async def handle_snapchat(
             # If even sending the error message fails, give up gracefully.
             pass
     finally:
-        await cleanup_files(*[fp for fp, _ in downloaded])
+        await cleanup_files(*[t[0] for t in downloaded])
 
 
 async def handle_quality_picker(
