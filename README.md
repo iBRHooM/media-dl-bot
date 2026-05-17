@@ -96,6 +96,7 @@ services:
       LOCAL_API_URL: http://telegram-bot-api:8081
       ALLOWED_USERS: ${ALLOWED_USERS}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-1900}
+      TZ: ${TZ:-Asia/Riyadh}
     volumes:
       - ./downloads:/app/downloads
       - ./logs:/app/logs
@@ -143,6 +144,12 @@ MAX_FILE_SIZE_MB=1900
 # Recommended: pin in production so updates are deliberate, not surprise breakages.
 # Example: IMAGE_TAG=0.1.0
 IMAGE_TAG=latest
+
+# Timezone for displaying Snapchat story post timestamps in Telegram captions.
+# Use any IANA timezone name (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+# Examples: Asia/Riyadh, Europe/London, America/New_York, UTC
+# Default: Asia/Riyadh
+TZ=Asia/Riyadh
 ```
 
 ### 5. Start the bot
@@ -163,7 +170,7 @@ You should see:
 
 ```
 Using local Bot API: http://telegram-bot-api:8081
-Bot started (media-dl-bot v0.1.6).
+Bot started (media-dl-bot v0.1.7).
 ```
 
 Send `/start` to your bot in Telegram.
@@ -181,6 +188,7 @@ Quick reference for the variables in `.env`:
 | `API_HASH` | ✅ | — | Telegram API hash from [my.telegram.org](https://my.telegram.org). |
 | `ALLOWED_USERS` | optional | *empty* | Comma-separated Telegram user IDs allowed to use the bot. Empty = open to everyone. |
 | `MAX_FILE_SIZE_MB` | optional | `1900` | Max file size to upload. Hard cap 2000 MB. |
+| `TZ` | optional | `Asia/Riyadh` | IANA timezone for Snapchat story post timestamps in captions. |
 | `IMAGE_TAG` | optional | `latest` | Pin the bot image to a specific version (e.g. `0.1.0`). |
 
 ---
