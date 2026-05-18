@@ -7,6 +7,7 @@ Supported:
 """
 
 import os
+import time
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
@@ -30,7 +31,13 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
 from downloader import fetch_formats, download_media, needs_quality_picker
-from snapchat import fetch_snapchat_stories, download_story_media
+from snapchat import (
+    fetch_snapchat_stories,
+    download_story_media,
+    download_one_snap,
+    build_story_grid,
+    GRID_PAGE_SIZE,
+)
 from utils import detect_platform, sizeof_fmt, cleanup_files, escape_markdown
 
 # ── Version (single source of truth: pyproject.toml) ─────────────────────────
@@ -111,6 +118,12 @@ PLATFORM_LABELS = {
     "snapchat": "Snapchat",
 }
 
+# How long a Snapchat picker session is kept in memory before it's
+# considered stale and the user has to re-send the username. Short by
+# design: stories expire on Snapchat after 24h and thumbnails are cheap
+# to re-fetch, so there's no upside to holding state for long.
+SNAPCHAT_PICKER_TTL_SECONDS = 120  # 2 minutes
+
 HELP_TEXT = """
 👋 *Media Downloader Bot*
 
@@ -123,7 +136,7 @@ HELP_TEXT = """
 • Twitch (clips & VODs)
 
 *Username-based:*
-• `snapchat <username>` — downloads all public stories
+• `snapchat <username>` — preview all stories in a grid, then pick which to download (or grab them all)
 
 For YouTube, Facebook, Twitch, and X you'll be asked to pick a quality.
 """
@@ -218,15 +231,24 @@ def _build_snap_caption(username: str, index: int, total: int, timestamp: int) -
 async def handle_snapchat(
     update: Update, context: ContextTypes.DEFAULT_TYPE, username: str
 ) -> None:
-    # Outermost try wraps EVERYTHING — including the initial reply_text and
-    # the cleanup phase. Without this, exceptions raised before `status` is
-    # bound (e.g. a Markdown-parse BadRequest on the "Fetching..." message)
-    # propagate to ptb's default handler, which logs them under a different
-    # logger name and produces a generic Telegram-side error to the user.
-    # We saw exactly that in v0.1.4 logs: a Snapchat error reached the user
-    # but no traceback appeared under the __main__ logger.
+    """
+    v0.1.8: instead of auto-downloading every snap, fetch the story
+    listing and present a numbered grid + inline buttons. The user
+    picks which snap(s) to download.
+
+    Flow:
+      1. Scrape story metadata (URLs + thumbnails) — no media downloaded yet.
+      2. Build the page-0 grid PNG from Snapchat's `mediaPreviewUrl` thumbs.
+      3. Send the grid as a photo with inline buttons numbered 1..N for
+         this page, plus pagination (if >1 page) and "Download all".
+      4. The CallbackQuery handler `handle_snapchat_callback` reacts to
+         taps and either re-renders a different page or downloads.
+
+    Session state lives in `context.bot_data["snapchat_sessions"][key]`
+    keyed by user_id + message_id so concurrent users don't collide.
+    Sessions expire after SNAPCHAT_PICKER_TTL_SECONDS (2 minutes).
+    """
     status = None
-    downloaded: list[tuple[str, str, int, int, int]] = []
     try:
         status = await update.message.reply_text(
             f"👻 Fetching stories for *@{escape_markdown(username)}*...",
@@ -234,48 +256,50 @@ async def handle_snapchat(
         )
 
         media_items = await fetch_snapchat_stories(username)
-        await status.edit_text(f"⬇️ Downloading {len(media_items)} story item(s)...")
-        downloaded = await download_story_media(media_items, username)
+        total = len(media_items)
+        await status.edit_text(
+            f"🖼 Building preview grid for {total} snap(s)..."
+        )
 
-        if not downloaded:
-            await status.edit_text("❌ Could not download any story items.")
-            return
+        # Build page 0 of the grid.
+        png, page_count, page_size = await build_story_grid(media_items, page=0)
 
-        await status.edit_text(f"📤 Sending {len(downloaded)} item(s)...")
+        # Store session. Same `bot_data` pattern as the YouTube quality picker,
+        # but keyed under its own namespace so the two don't clash.
+        sessions = context.bot_data.setdefault("snapchat_sessions", {})
+        # Purge stale sessions opportunistically (no background task).
+        _purge_expired_snapchat_sessions(sessions)
 
-        for file_path, media_type, index, total, timestamp in downloaded:
-            file_size = os.path.getsize(file_path)
-            if file_size > MAX_FILE_SIZE_BYTES:
-                await update.message.reply_text(
-                    f"⚠️ Skipped one item — too large ({sizeof_fmt(file_size)})."
-                )
-                continue
+        key = f"sc_{update.effective_user.id}_{update.message.message_id}"
+        sessions[key] = {
+            "username": username,
+            "media_items": media_items,
+            "created_at": time.time(),
+        }
 
-            caption = _build_snap_caption(username, index, total, timestamp)
-            try:
-                with open(file_path, "rb") as f:
-                    if media_type == "video":
-                        await update.message.reply_video(f, caption=caption)
-                    else:
-                        await update.message.reply_photo(f, caption=caption)
-            except TelegramError as e:
-                logger.error(f"Failed to send story item: {e}")
-                await update.message.reply_text(f"❌ Failed to send one item: {e}")
+        markup = _build_grid_keyboard(
+            key=key, page=0, page_count=page_count, total=total
+        )
 
+        # Send the grid as a photo. The status "Building..." message is
+        # deleted on success to keep the chat tidy.
+        await update.message.reply_photo(
+            photo=png,
+            caption=(
+                f"👻 *@{escape_markdown(username)}* — {total} snap(s)\n"
+                f"Tap a number to download, or ⭐ for all."
+            ),
+            reply_markup=markup,
+            parse_mode=ParseMode.MARKDOWN,
+        )
         await status.delete()
 
     except (ValueError, RuntimeError) as e:
-        # Expected failure modes raised by the scraper (no profile, no
-        # stories, etc.). Show the message verbatim to the user.
         if status is not None:
             await status.edit_text(f"❌ {e}")
         else:
             await update.message.reply_text(f"❌ {e}")
     except Exception:
-        # Unexpected. Log the full traceback under THIS logger so it shows
-        # up in `bot.log` and in `docker compose logs bot`. Do NOT swallow
-        # silently — we explicitly want to see what's going wrong with
-        # Snapchat scraping in v0.1.5.
         logger.exception(f"Unexpected error in handle_snapchat for @{username}")
         msg = "❌ An unexpected error occurred. Please try again."
         try:
@@ -284,7 +308,290 @@ async def handle_snapchat(
             else:
                 await update.message.reply_text(msg)
         except TelegramError:
-            # If even sending the error message fails, give up gracefully.
+            pass
+
+
+def _purge_expired_snapchat_sessions(sessions: dict) -> None:
+    """Drop sessions older than the TTL. Mutates the dict in place."""
+    now = time.time()
+    expired = [
+        k for k, v in sessions.items()
+        if now - v.get("created_at", 0) > SNAPCHAT_PICKER_TTL_SECONDS
+    ]
+    for k in expired:
+        sessions.pop(k, None)
+
+
+def _build_grid_keyboard(
+    key: str, page: int, page_count: int, total: int
+) -> InlineKeyboardMarkup:
+    """
+    Build the inline keyboard for a grid page.
+
+    Layout:
+        [1] [2] [3] [4]
+        [5] [6] [7] [8]
+        [9] [10] [11] [12]
+        [⬅️ Prev]  [N/M]  [Next ➡️]    (only if page_count > 1)
+        [⭐ Download all]
+        [❌ Cancel]
+
+    Number buttons are 4-per-row (3 rows of 4 for 12 cells). Pagination
+    omitted entirely for single-page stories.
+    """
+    start = page * GRID_PAGE_SIZE
+    end = min(start + GRID_PAGE_SIZE, total)
+
+    rows: list[list[InlineKeyboardButton]] = []
+    # Number buttons, 4 per row.
+    current_row: list[InlineKeyboardButton] = []
+    for n in range(start + 1, end + 1):  # 1-based for display
+        current_row.append(
+            InlineKeyboardButton(
+                text=str(n),
+                callback_data=f"sc|{key}|dl|{n - 1}",  # send 0-based snapIndex
+            )
+        )
+        if len(current_row) == 4:
+            rows.append(current_row)
+            current_row = []
+    if current_row:
+        rows.append(current_row)
+
+    # Pagination row.
+    if page_count > 1:
+        prev_data = (
+            f"sc|{key}|page|{page - 1}" if page > 0 else "sc|noop"
+        )
+        next_data = (
+            f"sc|{key}|page|{page + 1}" if page < page_count - 1 else "sc|noop"
+        )
+        rows.append([
+            InlineKeyboardButton(
+                "⬅️ Prev" if page > 0 else "·",
+                callback_data=prev_data,
+            ),
+            InlineKeyboardButton(
+                f"{page + 1}/{page_count}",
+                callback_data="sc|noop",
+            ),
+            InlineKeyboardButton(
+                "Next ➡️" if page < page_count - 1 else "·",
+                callback_data=next_data,
+            ),
+        ])
+
+    # Action rows.
+    rows.append([
+        InlineKeyboardButton(
+            "⭐ Download all", callback_data=f"sc|{key}|all|"
+        )
+    ])
+    rows.append([
+        InlineKeyboardButton("❌ Cancel", callback_data=f"sc|{key}|cancel|")
+    ])
+
+    return InlineKeyboardMarkup(rows)
+
+
+async def handle_snapchat_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle taps on the Snapchat grid picker keyboard."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    # "sc|noop" — disabled pagination edges, ignore silently.
+    if data == "sc|noop":
+        return
+
+    try:
+        _, key, action, arg = data.split("|", 3)
+    except ValueError:
+        await query.answer("Invalid button", show_alert=False)
+        return
+
+    sessions = context.bot_data.get("snapchat_sessions", {})
+    _purge_expired_snapchat_sessions(sessions)
+    session = sessions.get(key)
+
+    if not session:
+        # Session purged (timed out, restart, or already cancelled).
+        try:
+            await query.edit_message_caption(
+                caption="⌛ Session expired. Send the username again.",
+                reply_markup=None,
+            )
+        except TelegramError:
+            pass
+        return
+
+    username = session["username"]
+    media_items = session["media_items"]
+    total = len(media_items)
+
+    if action == "cancel":
+        sessions.pop(key, None)
+        try:
+            await query.edit_message_caption(
+                caption="❌ Cancelled.",
+                reply_markup=None,
+            )
+        except TelegramError:
+            pass
+        return
+
+    if action == "page":
+        try:
+            new_page = int(arg)
+        except ValueError:
+            return
+        try:
+            png, page_count, _ = await build_story_grid(media_items, page=new_page)
+        except Exception:
+            logger.exception("Failed to rebuild grid for page change")
+            await query.answer("Couldn't load that page", show_alert=True)
+            return
+        markup = _build_grid_keyboard(
+            key=key, page=new_page, page_count=page_count, total=total
+        )
+        # `edit_message_media` replaces both the image and the keyboard.
+        from telegram import InputMediaPhoto
+        try:
+            await query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=png,
+                    caption=(
+                        f"👻 *@{escape_markdown(username)}* — {total} snap(s)\n"
+                        f"Tap a number to download, or ⭐ for all."
+                    ),
+                    parse_mode=ParseMode.MARKDOWN,
+                ),
+                reply_markup=markup,
+            )
+        except TelegramError as e:
+            logger.error(f"Failed to edit grid message: {e}")
+        return
+
+    if action == "dl":
+        try:
+            snap_idx = int(arg)
+        except ValueError:
+            return
+        if not (0 <= snap_idx < total):
+            await query.answer("Out of range", show_alert=True)
+            return
+        await _download_and_send_single(update, context, session, snap_idx)
+        return
+
+    if action == "all":
+        await _download_and_send_all(update, context, session)
+        # Session is single-use for "all" — drop it after.
+        sessions.pop(key, None)
+        return
+
+
+async def _download_and_send_single(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    session: dict,
+    snap_idx: int,
+) -> None:
+    """Download one snap from the picker and send it as a follow-up message."""
+    query = update.callback_query
+    username = session["username"]
+    media_items = session["media_items"]
+    total = len(media_items)
+    item = media_items[snap_idx]
+
+    notice = await query.message.reply_text(
+        f"⬇️ Downloading snap {snap_idx + 1} of {total}..."
+    )
+
+    file_path: str | None = None
+    try:
+        result = await download_one_snap(item, username, total)
+        if not result:
+            await notice.edit_text(f"❌ Failed to download snap {snap_idx + 1}.")
+            return
+        file_path, media_type, index, total_out, timestamp = result
+
+        file_size = os.path.getsize(file_path)
+        if file_size > MAX_FILE_SIZE_BYTES:
+            await notice.edit_text(
+                f"⚠️ Snap {snap_idx + 1} too large ({sizeof_fmt(file_size)}). "
+                f"Max: {MAX_FILE_SIZE_MB}MB."
+            )
+            return
+
+        caption = _build_snap_caption(username, index, total_out, timestamp)
+        with open(file_path, "rb") as f:
+            if media_type == "video":
+                await query.message.reply_video(f, caption=caption)
+            else:
+                await query.message.reply_photo(f, caption=caption)
+        await notice.delete()
+
+    except Exception:
+        logger.exception(f"Failed to download single snap {snap_idx}")
+        try:
+            await notice.edit_text(
+                f"❌ Failed to download snap {snap_idx + 1}."
+            )
+        except TelegramError:
+            pass
+    finally:
+        if file_path:
+            await cleanup_files(file_path)
+
+
+async def _download_and_send_all(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    session: dict,
+) -> None:
+    """Bulk download every snap in the story (mirrors pre-v0.1.8 behaviour)."""
+    query = update.callback_query
+    username = session["username"]
+    media_items = session["media_items"]
+
+    notice = await query.message.reply_text(
+        f"⬇️ Downloading all {len(media_items)} snap(s)..."
+    )
+    downloaded: list[tuple[str, str, int, int, int]] = []
+    try:
+        downloaded = await download_story_media(media_items, username)
+        if not downloaded:
+            await notice.edit_text("❌ Could not download any story items.")
+            return
+
+        await notice.edit_text(f"📤 Sending {len(downloaded)} item(s)...")
+
+        for file_path, media_type, index, total, timestamp in downloaded:
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_FILE_SIZE_BYTES:
+                await query.message.reply_text(
+                    f"⚠️ Skipped one item — too large ({sizeof_fmt(file_size)})."
+                )
+                continue
+            caption = _build_snap_caption(username, index, total, timestamp)
+            try:
+                with open(file_path, "rb") as f:
+                    if media_type == "video":
+                        await query.message.reply_video(f, caption=caption)
+                    else:
+                        await query.message.reply_photo(f, caption=caption)
+            except TelegramError as e:
+                logger.error(f"Failed to send story item: {e}")
+                await query.message.reply_text(f"❌ Failed to send one item: {e}")
+
+        await notice.delete()
+    except Exception:
+        logger.exception("Failed bulk Snapchat download")
+        try:
+            await notice.edit_text("❌ An unexpected error occurred.")
+        except TelegramError:
             pass
     finally:
         await cleanup_files(*[t[0] for t in downloaded])
@@ -460,6 +767,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(handle_quality_callback, pattern=r"^dl\|"))
+    app.add_handler(CallbackQueryHandler(handle_snapchat_callback, pattern=r"^sc\|"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(on_error)
 
