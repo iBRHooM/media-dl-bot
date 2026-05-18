@@ -31,6 +31,7 @@ services:
       LOCAL_API_URL: http://telegram-bot-api:8081
       ALLOWED_USERS: ${ALLOWED_USERS}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-1900}
+      TZ: ${TZ:-Asia/Riyadh}
     volumes:
       - ./downloads:/app/downloads
       - ./logs:/app/logs
