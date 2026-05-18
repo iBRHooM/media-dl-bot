@@ -170,7 +170,7 @@ You should see:
 
 ```
 Using local Bot API: http://telegram-bot-api:8081
-Bot started (media-dl-bot v0.1.7).
+Bot started (media-dl-bot v0.1.8).
 ```
 
 Send `/start` to your bot in Telegram.
@@ -213,7 +213,7 @@ docker compose up -d --pull always
 | Download Facebook video | Paste URL → pick quality |
 | Download Instagram reel/post | Paste URL |
 | Download Twitch clip / VOD | Paste URL → pick quality |
-| Download Snapchat stories | `snapchat <username>` |
+| Download Snapchat stories | `snapchat <username>` → preview grid → pick snap or "Download all" |
 
 ---
 
