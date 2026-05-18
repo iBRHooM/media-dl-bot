@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-06
+
+### Added
+- **Snapchat captions now include story order and post timestamp** as a three-line caption attached to each downloaded item: `👻 @username` / `N of M` / `2026-04-25 01:56pm`. The order uses Snapchat's own `snapIndex+1` so gaps are visible if a snap fails to download (matches what the user would see in the Snapchat app), and the total is the full story length, not what we managed to download.
+- **`TZ` environment variable** (optional, default `Asia/Riyadh`) for the timezone used when rendering the post timestamp. Accepts any IANA timezone name (e.g. `America/New_York`, `Europe/London`, `UTC`). Invalid values are caught at startup and fall back to UTC with a warning. If Snapchat omits the timestamp on a snap, the date line is omitted rather than showing a 1970 placeholder.
+
 ## [0.1.6] - 2026-05-06
 
 ### Fixed
@@ -65,7 +71,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.4
