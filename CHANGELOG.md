@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-05-17
+
+### Added
+- **Snapchat preview grid + picker.** `snapchat <username>` no longer auto-downloads every snap. Instead, the bot fetches the story listing, builds a numbered grid image from Snapchat's own 256px thumbnails, and posts it with inline buttons so the user can pick which snap(s) to download. Each cell shows the snap number (1, 2, 3...) over the thumbnail with a high-contrast pill so it reads on any content. A `⭐ Download all` button preserves the old "grab everything" flow with one tap.
+- **Pagination** when a story has more than 12 snaps (3-column × 4-row layout per page). `⬅️ Prev` / `Next ➡️` step through pages; current page shown as `N/M` in the middle.
+- **2-minute session timeout.** Picker state lives in-memory keyed by user + message ID and is purged after 120 seconds (or on cancel). Late button taps show "Session expired — send the username again" instead of failing silently. Sessions are also opportunistically swept whenever a new session is created or any callback fires, so memory doesn't grow.
+- **`Pillow>=10.0.0`** runtime dependency for compositing the grid PNG. Adds ~5 MB to the image.
+
+### Changed
+- `download_story_media` was refactored: the per-snap download loop is now a reusable helper (`_download_single_snap`) so the grid picker (single snap) and "Download all" share the same code path. Behaviour for "Download all" is unchanged.
+- `fetch_snapchat_stories` now also extracts `mediaPreviewUrl.value` per snap (the 256px thumbnail) so the grid can be built without downloading the full media.
+
 ## [0.1.7] - 2026-05-06
 
 ### Added
@@ -71,7 +83,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.8
 [0.1.7]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.5
