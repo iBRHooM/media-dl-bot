@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-05-17
+
+### Changed
+- **Snapchat picker now stays open after a single-snap download** so the user can keep grabbing more snaps from the same story without re-requesting it. Already-downloaded snaps are marked with ✅ in the keyboard, and the session TTL refreshes on every pick. `⭐ Download all` and `❌ Close` (renamed from "Cancel") end the session and remove the buttons. v0.1.8 closed the picker after any tap, which felt premature when the typical workflow is "pick 3, then 7, then 12".
+- **Session TTL bumped from 2 → 5 minutes** to give the new multi-pick flow more breathing room. Each successful pick also resets the timer.
+
 ## [0.1.8] - 2026-05-17
 
 ### Added
@@ -83,7 +89,8 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
-[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/ibrhoom/media-dl-bot/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.9
 [0.1.8]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.8
 [0.1.7]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ibrhoom/media-dl-bot/releases/tag/v0.1.6
