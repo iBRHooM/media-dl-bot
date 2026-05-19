@@ -119,10 +119,11 @@ PLATFORM_LABELS = {
 }
 
 # How long a Snapchat picker session is kept in memory before it's
-# considered stale and the user has to re-send the username. Short by
-# design: stories expire on Snapchat after 24h and thumbnails are cheap
-# to re-fetch, so there's no upside to holding state for long.
-SNAPCHAT_PICKER_TTL_SECONDS = 120  # 2 minutes
+# considered stale and the user has to re-send the username.
+# v0.1.9: bumped from 120s → 300s to give multi-pick more breathing room
+# (the grid stays open after a single-snap download, so users naturally
+# want to come back and pick more without re-requesting the story).
+SNAPCHAT_PICKER_TTL_SECONDS = 300  # 5 minutes
 
 HELP_TEXT = """
 👋 *Media Downloader Bot*
@@ -275,6 +276,10 @@ async def handle_snapchat(
             "username": username,
             "media_items": media_items,
             "created_at": time.time(),
+            # Tracks which snap indices (0-based) the user has already
+            # downloaded in this session. Used to mark them with ✅ in
+            # the keyboard so it's obvious what's been grabbed.
+            "picked": set(),
         }
 
         markup = _build_grid_keyboard(
@@ -323,7 +328,11 @@ def _purge_expired_snapchat_sessions(sessions: dict) -> None:
 
 
 def _build_grid_keyboard(
-    key: str, page: int, page_count: int, total: int
+    key: str,
+    page: int,
+    page_count: int,
+    total: int,
+    picked: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
     """
     Build the inline keyboard for a grid page.
@@ -334,11 +343,16 @@ def _build_grid_keyboard(
         [9] [10] [11] [12]
         [⬅️ Prev]  [N/M]  [Next ➡️]    (only if page_count > 1)
         [⭐ Download all]
-        [❌ Cancel]
+        [❌ Close]
 
-    Number buttons are 4-per-row (3 rows of 4 for 12 cells). Pagination
-    omitted entirely for single-page stories.
+    Number buttons are 4-per-row. Already-downloaded snaps (in `picked`)
+    get a ✅ prefix so the user can see at a glance what's been grabbed
+    in this session — useful since the grid stays open after each
+    single-snap pick (v0.1.9). Pagination omitted for single-page stories.
     """
+    if picked is None:
+        picked = set()
+
     start = page * GRID_PAGE_SIZE
     end = min(start + GRID_PAGE_SIZE, total)
 
@@ -346,10 +360,12 @@ def _build_grid_keyboard(
     # Number buttons, 4 per row.
     current_row: list[InlineKeyboardButton] = []
     for n in range(start + 1, end + 1):  # 1-based for display
+        snap_idx = n - 1
+        label = f"✅ {n}" if snap_idx in picked else str(n)
         current_row.append(
             InlineKeyboardButton(
-                text=str(n),
-                callback_data=f"sc|{key}|dl|{n - 1}",  # send 0-based snapIndex
+                text=label,
+                callback_data=f"sc|{key}|dl|{snap_idx}",  # 0-based snapIndex
             )
         )
         if len(current_row) == 4:
@@ -388,7 +404,7 @@ def _build_grid_keyboard(
         )
     ])
     rows.append([
-        InlineKeyboardButton("❌ Cancel", callback_data=f"sc|{key}|cancel|")
+        InlineKeyboardButton("❌ Close", callback_data=f"sc|{key}|cancel|")
     ])
 
     return InlineKeyboardMarkup(rows)
@@ -434,9 +450,15 @@ async def handle_snapchat_callback(
     if action == "cancel":
         sessions.pop(key, None)
         try:
+            # Update the grid caption and remove buttons. We keep the
+            # grid image so the user can scroll back and see what was
+            # offered without re-requesting.
             await query.edit_message_caption(
-                caption="❌ Cancelled.",
+                caption=(
+                    f"👻 *@{escape_markdown(username)}* — picker closed."
+                ),
                 reply_markup=None,
+                parse_mode=ParseMode.MARKDOWN,
             )
         except TelegramError:
             pass
@@ -454,7 +476,11 @@ async def handle_snapchat_callback(
             await query.answer("Couldn't load that page", show_alert=True)
             return
         markup = _build_grid_keyboard(
-            key=key, page=new_page, page_count=page_count, total=total
+            key=key,
+            page=new_page,
+            page_count=page_count,
+            total=total,
+            picked=session.get("picked", set()),
         )
         # `edit_message_media` replaces both the image and the keyboard.
         from telegram import InputMediaPhoto
@@ -482,13 +508,58 @@ async def handle_snapchat_callback(
         if not (0 <= snap_idx < total):
             await query.answer("Out of range", show_alert=True)
             return
-        await _download_and_send_single(update, context, session, snap_idx)
+
+        success = await _download_and_send_single(
+            update, context, session, snap_idx
+        )
+
+        # v0.1.9: keep the picker open after a single-snap download so
+        # the user can grab more snaps without re-requesting the story.
+        # Mark the picked snap with ✅ in the keyboard if download
+        # succeeded. The grid image itself doesn't change — only the
+        # button labels — so we use edit_message_reply_markup (lighter
+        # than edit_message_media, and avoids re-uploading the PNG).
+        if success:
+            session.setdefault("picked", set()).add(snap_idx)
+            # Refresh the session timestamp too — the user is actively
+            # using the picker, so the 5-minute TTL should restart.
+            session["created_at"] = time.time()
+
+            # Figure out which page the picked snap is on so we re-render
+            # the keyboard for the current view (not page 0).
+            current_page = snap_idx // GRID_PAGE_SIZE
+            page_count = (total + GRID_PAGE_SIZE - 1) // GRID_PAGE_SIZE
+            markup = _build_grid_keyboard(
+                key=key,
+                page=current_page,
+                page_count=page_count,
+                total=total,
+                picked=session["picked"],
+            )
+            try:
+                await query.edit_message_reply_markup(reply_markup=markup)
+            except TelegramError as e:
+                # Non-fatal: the download already worked, the user just
+                # won't see the ✅ marker. Log and move on.
+                logger.warning(f"Could not refresh picker keyboard: {e}")
         return
 
     if action == "all":
         await _download_and_send_all(update, context, session)
-        # Session is single-use for "all" — drop it after.
+        # "Download all" ends the session — clear the picker UI entirely
+        # by removing the keyboard and updating the caption.
         sessions.pop(key, None)
+        try:
+            await query.edit_message_caption(
+                caption=(
+                    f"👻 *@{escape_markdown(username)}* — all "
+                    f"{total} snap(s) downloaded ✅"
+                ),
+                reply_markup=None,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        except TelegramError as e:
+            logger.warning(f"Could not close picker after 'all': {e}")
         return
 
 
@@ -497,8 +568,15 @@ async def _download_and_send_single(
     context: ContextTypes.DEFAULT_TYPE,
     session: dict,
     snap_idx: int,
-) -> None:
-    """Download one snap from the picker and send it as a follow-up message."""
+) -> bool:
+    """
+    Download one snap from the picker and send it as a follow-up message.
+
+    Returns True on success (snap sent, or oversized-skipped), False on
+    failure (download error or Telegram error). The caller uses the
+    return value to decide whether to mark the snap with ✅ in the
+    keyboard.
+    """
     query = update.callback_query
     username = session["username"]
     media_items = session["media_items"]
@@ -514,7 +592,7 @@ async def _download_and_send_single(
         result = await download_one_snap(item, username, total)
         if not result:
             await notice.edit_text(f"❌ Failed to download snap {snap_idx + 1}.")
-            return
+            return False
         file_path, media_type, index, total_out, timestamp = result
 
         file_size = os.path.getsize(file_path)
@@ -523,7 +601,10 @@ async def _download_and_send_single(
                 f"⚠️ Snap {snap_idx + 1} too large ({sizeof_fmt(file_size)}). "
                 f"Max: {MAX_FILE_SIZE_MB}MB."
             )
-            return
+            # Mark as "picked" anyway — the user got an answer about
+            # this snap, even if it was "too big". Saves them from
+            # tapping it again expecting different behaviour.
+            return True
 
         caption = _build_snap_caption(username, index, total_out, timestamp)
         with open(file_path, "rb") as f:
@@ -532,6 +613,7 @@ async def _download_and_send_single(
             else:
                 await query.message.reply_photo(f, caption=caption)
         await notice.delete()
+        return True
 
     except Exception:
         logger.exception(f"Failed to download single snap {snap_idx}")
@@ -541,6 +623,7 @@ async def _download_and_send_single(
             )
         except TelegramError:
             pass
+        return False
     finally:
         if file_path:
             await cleanup_files(file_path)
