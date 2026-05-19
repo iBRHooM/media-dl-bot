@@ -170,7 +170,7 @@ You should see:
 
 ```
 Using local Bot API: http://telegram-bot-api:8081
-Bot started (media-dl-bot v0.1.8).
+Bot started (media-dl-bot v0.1.9).
 ```
 
 Send `/start` to your bot in Telegram.
