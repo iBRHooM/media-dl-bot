@@ -170,11 +170,20 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
         elif isinstance(preview_node, str) and preview_node.startswith("http"):
             preview_url = preview_node
 
+        # `snapIndex` flows into the download filename and captions, so
+        # coerce it to int like every other scraped field gets validated —
+        # a non-numeric value from a changed/hostile schema must not reach
+        # a filesystem path. Fall back to the running position.
+        try:
+            index = int(snap.get("snapIndex"))
+        except (TypeError, ValueError):
+            index = len(items)
+
         items.append({
             "url": media_url,
             "preview_url": preview_url,
             "type": _classify_snap(snap),
-            "index": snap.get("snapIndex", len(items)),
+            "index": index,
             "total": total,
             "timestamp": timestamp,
         })
