@@ -44,10 +44,15 @@ def detect_platform(text: str) -> tuple[str, str] | tuple[None, None]:
     if match:
         return "snapchat", match.group(1)
 
-    # Check URL patterns
+    # Check URL patterns. Return only the matched URL substring — never
+    # the full message text. Passing the whole text let a crafted message
+    # (e.g. "https://evil.example/#facebook.com/x", where the platform
+    # pattern matches inside the fragment) hand an arbitrary URL to
+    # yt-dlp's generic extractor.
     for platform, pattern in URL_PATTERNS.items():
-        if pattern.search(text):
-            return platform, text
+        match = pattern.search(text)
+        if match:
+            return platform, match.group(0)
 
     return None, None
 
