@@ -2,7 +2,7 @@
 # This image ships with Chromium + all required system libs preinstalled,
 # multi-arch (amd64 + arm64), and is maintained by Microsoft. Avoids fragile
 # combinations of apt chromium + Playwright downloads.
-FROM mcr.microsoft.com/playwright/python:v1.48.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
 
 # OCI image labels (recognized by GHCR / Docker Hub for source linking)
 LABEL org.opencontainers.image.source="https://github.com/ibrhoom/media-dl-bot"
