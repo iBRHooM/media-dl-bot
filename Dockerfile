@@ -12,16 +12,12 @@ LABEL org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 
 # ffmpeg is needed by yt-dlp for stream merging.
-# wget is needed to fetch the yt-dlp binary below.
+# yt-dlp itself comes from pip (pinned in pyproject.toml) — downloader.py
+# imports the yt_dlp module; the previously-fetched standalone binary was
+# never invoked and has been removed (unpinned, unverified download).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    wget \
     && rm -rf /var/lib/apt/lists/*
-
-# Install yt-dlp nightly (more reliable for fast-moving sites like TikTok/IG)
-RUN wget -qO /usr/local/bin/yt-dlp \
-    https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp && \
-    chmod +x /usr/local/bin/yt-dlp
 
 # Copy project files and install via pyproject.toml
 # (pyproject.toml is the single source of truth for version + dependencies)
