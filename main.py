@@ -148,6 +148,35 @@ PLATFORM_LABELS = {
 # yt-dlp, Playwright, and log lines. (Telegram's own cap is 4096.)
 MAX_INPUT_LENGTH = 1024
 
+# ── Upload timeout scaling ────────────────────────────────────────────────────
+# The self-hosted Bot API relays the entire file to Telegram's datacenter
+# before it responds, so the response wait grows with file size. PTB's
+# default read_timeout (5s) is only enough for small files — a 144MB
+# video reproducibly hit "Timed out" while the upload itself succeeded
+# seconds later. Scale the per-call read_timeout with the file being
+# sent: small files still fail fast, large files get a proportional
+# allowance, clamped to sane bounds either way.
+UPLOAD_TIMEOUT_MIN_SECONDS = 30
+UPLOAD_TIMEOUT_MAX_SECONDS = 300
+# Conservative sustained uplink assumption for the relay leg
+# (VM 200 → Telegram DC): ~20 Mbit/s.
+ASSUMED_UPLOAD_BYTES_PER_SEC = 2.5 * 1024 * 1024
+
+
+def _upload_read_timeout(file_size_bytes: int) -> float:
+    """
+    Per-call read_timeout for media uploads, scaled to file size.
+
+    Expected relay time at the assumed uplink speed, doubled for
+    headroom (Telegram-side processing, bandwidth variance), clamped to
+    [UPLOAD_TIMEOUT_MIN_SECONDS, UPLOAD_TIMEOUT_MAX_SECONDS].
+    """
+    expected = file_size_bytes / ASSUMED_UPLOAD_BYTES_PER_SEC
+    return max(
+        UPLOAD_TIMEOUT_MIN_SECONDS,
+        min(UPLOAD_TIMEOUT_MAX_SECONDS, expected * 2),
+    )
+
 # How long a Snapchat picker session is kept in memory before it's
 # considered stale and the user has to re-send the username.
 # v0.1.9: bumped from 120s → 300s to give multi-pick more breathing room
@@ -654,11 +683,16 @@ async def _download_and_send_single(
             return True
 
         caption = _build_snap_caption(username, index, total_out, timestamp)
+        upload_timeout = _upload_read_timeout(file_size)
         with open(file_path, "rb") as f:
             if media_type == "video":
-                await query.message.reply_video(f, caption=caption)
+                await query.message.reply_video(
+                    f, caption=caption, read_timeout=upload_timeout
+                )
             else:
-                await query.message.reply_photo(f, caption=caption)
+                await query.message.reply_photo(
+                    f, caption=caption, read_timeout=upload_timeout
+                )
         await notice.delete()
         return True
 
@@ -706,12 +740,17 @@ async def _download_and_send_all(
                 )
                 continue
             caption = _build_snap_caption(username, index, total, timestamp)
+            upload_timeout = _upload_read_timeout(file_size)
             try:
                 with open(file_path, "rb") as f:
                     if media_type == "video":
-                        await query.message.reply_video(f, caption=caption)
+                        await query.message.reply_video(
+                            f, caption=caption, read_timeout=upload_timeout
+                        )
                     else:
-                        await query.message.reply_photo(f, caption=caption)
+                        await query.message.reply_photo(
+                            f, caption=caption, read_timeout=upload_timeout
+                        )
             except TelegramError as e:
                 logger.error(f"Failed to send story item: {e}")
                 await query.message.reply_text("❌ Failed to send one item.")
@@ -860,6 +899,7 @@ async def _send_video(
                 f,
                 caption=f"🎬 {title}",
                 supports_streaming=True,
+                read_timeout=_upload_read_timeout(file_size),
             )
 
         await status_msg.delete()
