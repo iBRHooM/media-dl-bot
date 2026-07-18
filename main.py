@@ -415,6 +415,13 @@ async def handle_snapchat_callback(
 ) -> None:
     """Handle taps on the Snapchat grid picker keyboard."""
     query = update.callback_query
+    # Auth guard on every entry point: unauthorized users never receive
+    # picker keyboards, but callback queries are still an independent
+    # update type (e.g. in a group chat where an allowed user opened a
+    # picker) and must be checked like any other handler.
+    if not is_allowed(update.effective_user.id):
+        await query.answer("Not authorized", show_alert=False)
+        return
     await query.answer()
 
     data = query.data or ""
@@ -754,6 +761,10 @@ async def handle_auto_download(
 async def handle_quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle quality picker button press."""
     query = update.callback_query
+    # Auth guard on every entry point (see handle_snapchat_callback).
+    if not is_allowed(update.effective_user.id):
+        await query.answer("Not authorized", show_alert=False)
+        return
     await query.answer()
 
     try:
