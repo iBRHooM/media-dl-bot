@@ -97,8 +97,8 @@ services:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
-      API_ID: ${API_ID}
-      API_HASH: ${API_HASH}
+      # API_ID / API_HASH are only needed by the telegram-bot-api
+      # container above, not the bot — don't inject them here.
       LOCAL_API_URL: http://telegram-bot-api:8081
       ALLOWED_USERS: ${ALLOWED_USERS}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-1900}

@@ -37,8 +37,10 @@ services:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
-      API_ID: ${API_ID}
-      API_HASH: ${API_HASH}
+      # API_ID / API_HASH are intentionally NOT passed here — only the
+      # telegram-bot-api container needs them. The bot process never reads
+      # them, so injecting them would just widen their exposure in
+      # `docker inspect` for no reason.
       LOCAL_API_URL: http://telegram-bot-api:8081
       ALLOWED_USERS: ${ALLOWED_USERS}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-1900}
