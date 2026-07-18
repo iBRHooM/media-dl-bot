@@ -30,9 +30,18 @@ import aiofiles
 from PIL import Image, ImageDraw, ImageFont
 from playwright.async_api import async_playwright
 
-from utils import get_downloads_dir
+from utils import (
+    get_downloads_dir,
+    get_max_file_size_bytes,
+    cleanup_stale_downloads,
+)
 
 logger = logging.getLogger(__name__)
+
+# Snaps larger than this can never be sent to Telegram anyway, so stop
+# streaming (and delete the partial file) once the cap is crossed instead
+# of writing the whole thing to disk first.
+MAX_FILE_SIZE_BYTES = get_max_file_size_bytes()
 
 # Try @username first (current canonical), fall back to /add/username (legacy
 # but still valid as a redirect target).
@@ -354,8 +363,30 @@ async def _download_single_snap(
                     f"HTTP {resp.status}"
                 )
                 return None
+            # Size cap, enforced twice: declared length up front, then
+            # actual bytes while streaming (servers can omit or lie about
+            # Content-Length). Disk-fill guard — oversized snaps could
+            # never be sent to Telegram anyway.
+            if resp.content_length and resp.content_length > MAX_FILE_SIZE_BYTES:
+                logger.warning(
+                    f"Skipping story item {index}: declared size "
+                    f"{resp.content_length} exceeds cap {MAX_FILE_SIZE_BYTES}"
+                )
+                return None
+            written = 0
             async with aiofiles.open(filename, "wb") as f:
                 async for chunk in resp.content.iter_chunked(1024 * 64):
+                    written += len(chunk)
+                    if written > MAX_FILE_SIZE_BYTES:
+                        logger.warning(
+                            f"Aborting story item {index}: stream exceeded "
+                            f"cap {MAX_FILE_SIZE_BYTES}"
+                        )
+                        try:
+                            filename.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        return None
                     await f.write(chunk)
         logger.debug(f"Downloaded story item {index}: {filename}")
         return (str(filename), media_type, index, total, timestamp)
@@ -375,6 +406,7 @@ async def download_one_snap(
     caption can read "3 of 7" using the original story length, not
     "3 of 1".
     """
+    cleanup_stale_downloads()
     async with aiohttp.ClientSession(headers=_HTTP_HEADERS) as session:
         return await _download_single_snap(session, item, username, total)
 
@@ -392,6 +424,7 @@ async def download_story_media(
     snaps failed to download), and `timestamp` is the Unix-epoch
     seconds when the snap was posted (0 if Snapchat didn't return one).
     """
+    cleanup_stale_downloads()
     downloaded: list[tuple[str, str, int, int, int]] = []
     total = len(media_items)
 

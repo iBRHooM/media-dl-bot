@@ -4,10 +4,17 @@ Shared utilities: platform detection, file cleanup, size formatting.
 
 import os
 import re
+import time
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Any file in the downloads dir older than this is debris from a crash or
+# restart — the normal flow deletes each file right after sending it.
+# mtime refreshes on every write, so actively-downloading files (even huge
+# multi-hour VOD downloads) are never considered stale.
+DOWNLOADS_STALE_AGE_SECONDS = 3600
 
 # Supported URL patterns per platform
 URL_PATTERNS = {
@@ -87,3 +94,37 @@ def get_downloads_dir() -> Path:
     path = Path("/app/downloads")
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_max_file_size_bytes() -> int:
+    """
+    Upload/download size limit in bytes, from the MAX_FILE_SIZE_MB env var
+    (default 1900). Shared by the upload check in main.py and the
+    pre-download caps in downloader.py / snapchat.py so they can't drift.
+    """
+    return int(os.environ.get("MAX_FILE_SIZE_MB", 1900)) * 1024 * 1024
+
+
+def cleanup_stale_downloads(
+    max_age_seconds: int = DOWNLOADS_STALE_AGE_SECONDS,
+) -> None:
+    """
+    Remove orphaned files from the downloads dir.
+
+    Called opportunistically at the start of each download (same
+    no-background-task pattern as the Snapchat session purge). Guards
+    against disk fill from files left behind by crashes or restarts.
+    """
+    now = time.time()
+    try:
+        entries = list(get_downloads_dir().iterdir())
+    except OSError as e:
+        logger.warning(f"Stale-download sweep failed to list dir: {e}")
+        return
+    for p in entries:
+        try:
+            if p.is_file() and now - p.stat().st_mtime > max_age_seconds:
+                p.unlink()
+                logger.info(f"Removed stale download: {p.name}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale file {p}: {e}")

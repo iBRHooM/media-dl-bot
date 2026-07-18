@@ -10,13 +10,22 @@ from pathlib import Path
 from typing import Optional
 import yt_dlp
 
-from utils import get_downloads_dir
+from utils import (
+    get_downloads_dir,
+    get_max_file_size_bytes,
+    cleanup_stale_downloads,
+)
 
 logger = logging.getLogger(__name__)
 
 # Platforms that typically have multiple quality options worth presenting.
 # All other supported platforms (TikTok, Instagram) auto-pick the best stream.
 QUALITY_PICKER_PLATFORMS = {"youtube", "facebook", "twitch", "twitter"}
+
+# Files larger than this can never be sent to Telegram anyway (main.py
+# rejects them after download), so make yt-dlp refuse/abort the download
+# up front instead of filling the disk first.
+MAX_FILE_SIZE_BYTES = get_max_file_size_bytes()
 
 
 def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> dict:
@@ -26,6 +35,14 @@ def _build_ydl_opts(output_template: str, format_id: Optional[str] = None) -> di
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # Skip/abort downloads that exceed the Telegram upload limit
+        # instead of downloading them fully and rejecting at upload time
+        # (disk-fill guard). Checked against declared sizes before
+        # download and against bytes written during it. Note: for merged
+        # video+audio this applies per stream, so the merged result can
+        # slightly exceed it — main.py's post-download check remains the
+        # authoritative upload gate.
+        "max_filesize": MAX_FILE_SIZE_BYTES,
         # `noplaylist` doesn't always cover Twitter quote-tweets where both
         # the outer tweet and the quoted tweet have video — yt-dlp may still
         # treat them as a 2-entry playlist. `playlist_items='1'` forces
@@ -210,6 +227,9 @@ async def download_media(url: str, format_id: Optional[str] = None) -> tuple[str
     Download media from URL.
     Returns (file_path, title).
     """
+    # Opportunistic sweep of crash/restart debris before writing new files.
+    cleanup_stale_downloads()
+
     downloads_dir = get_downloads_dir()
     # Unique per-download prefix prevents collisions when two users request the
     # same video at the same time (yt-dlp would otherwise reuse %(id)s.%(ext)s).
