@@ -56,14 +56,39 @@ except PackageNotFoundError:
 LOG_DIR = Path("/app/logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_DIR / "bot.log"),
-    ],
-)
+class _RedactingFormatter(logging.Formatter):
+    """
+    Redact the bot token from every formatted log record.
+
+    Defense in depth for the v0.1.4 token-leak class: the httpx/httpcore
+    silencing below stops those loggers' own request lines, but it cannot
+    cover an exception whose text embeds a request URL (`/bot<TOKEN>/...`)
+    being logged with a traceback via logger.exception / on_error. This
+    formatter runs on the final formatted string — message, args, and
+    traceback text included — so the token never reaches bot.log or
+    stdout regardless of which code path logged it.
+
+    The token is looked up per record (not captured at import) because
+    this class is defined before the BOT_TOKEN config check runs.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        formatted = super().format(record)
+        token = os.environ.get("BOT_TOKEN")
+        if token:
+            formatted = formatted.replace(token, "<BOT_TOKEN_REDACTED>")
+        return formatted
+
+
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_log_handlers = [
+    logging.StreamHandler(),
+    logging.FileHandler(LOG_DIR / "bot.log"),
+]
+for _handler in _log_handlers:
+    _handler.setFormatter(_RedactingFormatter(_LOG_FORMAT))
+
+logging.basicConfig(level=logging.INFO, handlers=_log_handlers)
 
 # Silence httpx's request logging — it includes the bot token in every URL,
 # which would leak the token into bot.log. We still see Telegram errors via
