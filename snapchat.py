@@ -335,7 +335,14 @@ async def _download_single_snap(
 
     downloads_dir = get_downloads_dir()
     # Include media_type in filename: video and photo can share an index.
-    filename = downloads_dir / f"snap_{username}_{media_type}_{index}.{ext}"
+    # The uuid prefix makes the path unique per download (same pattern as
+    # downloader.py): without it, concurrent requests for the same
+    # username collide on one path, and cleanup_files() in one request's
+    # `finally` can delete the file another request is still sending.
+    unique = uuid.uuid4().hex[:8]
+    filename = (
+        downloads_dir / f"snap_{unique}_{username}_{media_type}_{index}.{ext}"
+    )
 
     try:
         async with session.get(
