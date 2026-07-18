@@ -73,8 +73,9 @@ services:
       TELEGRAM_API_HASH: ${API_HASH}
     volumes:
       - ./telegram-bot-api-data:/var/lib/telegram-bot-api
-    ports:
-      - "8081:8081"
+    # Not published on the host: the bot reaches this service over the
+    # internal compose network. For local debugging only, you can add
+    # ports: ["127.0.0.1:8081:8081"].
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/ 2>&1 | grep -q '404'"]
       interval: 10s
@@ -102,6 +103,18 @@ services:
       - ./logs:/app/logs
     tmpfs:
       - /tmp
+    # Allows Chromium's sandbox to create user namespaces (the bot runs
+    # as non-root with the sandbox enabled). File fetched in the next step.
+    security_opt:
+      - seccomp:./seccomp_profile.json
+```
+
+The compose file references `seccomp_profile.json` (Playwright's official
+seccomp profile — Docker's default syscall allowlist plus the user-namespace
+calls Chromium's sandbox needs). Download it next to the compose file:
+
+```bash
+wget https://raw.githubusercontent.com/iBRHooM/media-dl-bot/main/seccomp_profile.json
 ```
 
 ### 4. Create `.env`
@@ -154,9 +167,18 @@ TZ=Asia/Riyadh
 
 ### 5. Start the bot
 
+The container runs as a non-root user (`pwuser`), so the mounted
+`downloads/` and `logs/` directories must be writable by its uid —
+typically **1001** in the Playwright base image:
+
 ```bash
+mkdir -p downloads logs
+sudo chown -R 1001:1001 downloads logs
 docker compose up -d
 ```
+
+If the bot logs permission errors on startup, confirm the uid with
+`docker compose exec bot id` and re-run the `chown` with that value.
 
 The image is pulled from GHCR automatically. First start takes ~30 s while the Telegram Bot API container initializes.
 

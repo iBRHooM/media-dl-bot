@@ -8,8 +8,11 @@ services:
       TELEGRAM_API_HASH: ${API_HASH}
     volumes:
       - ./telegram-bot-api-data:/var/lib/telegram-bot-api
-    ports:
-      - "8081:8081"
+    # No host port publish: the bot reaches this service over the internal
+    # compose network (http://telegram-bot-api:8081). Publishing 8081 on
+    # the host exposed the Bot API to the whole LAN, where knowledge of
+    # the bot token alone is enough to drive it. For occasional local
+    # debugging, bind to loopback only: ports: ["127.0.0.1:8081:8081"].
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/ 2>&1 | grep -q '404'"]
       interval: 10s
