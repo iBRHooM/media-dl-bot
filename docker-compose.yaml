@@ -1,6 +1,9 @@
 services:
   telegram-bot-api:
-    image: aiogram/telegram-bot-api:latest
+    # Pinned to the 10.2 multi-arch manifest-list digest (amd64 + arm64)
+    # for reproducibility — was floating on :latest. Update deliberately:
+    # bump the tag and re-resolve the digest.
+    image: aiogram/telegram-bot-api:10.2@sha256:39eb1b74c367e9a2fa7e7185a8e403a29f5c5d7bece8c0b9da441525ac8561c4
     container_name: telegram-bot-api
     restart: unless-stopped
     environment:
