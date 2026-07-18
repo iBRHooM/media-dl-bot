@@ -25,6 +25,7 @@ import io
 import json
 import logging
 import uuid
+from urllib.parse import urlparse
 import aiohttp
 import aiofiles
 from PIL import Image, ImageDraw, ImageFont
@@ -50,6 +51,30 @@ PROFILE_URL_PATTERNS = (
     "https://www.snapchat.com/add/{username}",
 )
 TIMEOUT_MS = 30_000
+
+
+# Hosts Snapchat serves story media/thumbnails from, verified against live
+# __NEXT_DATA__ on multiple profile types (2026-07): media and preview URLs
+# all point at *.sc-cdn.net (bolt-gcdn, cf-st). snapchat.com is included as
+# a safety margin for first-party-hosted assets. Anything else scraped out
+# of the page JSON is refused — SSRF defense in case the schema is ever
+# spoofed or changed to point at internal/metadata addresses.
+_ALLOWED_MEDIA_HOST_SUFFIXES = (".sc-cdn.net", ".snapchat.com")
+_ALLOWED_MEDIA_HOSTS = {"sc-cdn.net", "snapchat.com"}
+
+
+def _is_allowed_media_url(url: str) -> bool:
+    """True if the URL is https on a known Snapchat media host."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = parsed.hostname or ""
+    return host in _ALLOWED_MEDIA_HOSTS or host.endswith(
+        _ALLOWED_MEDIA_HOST_SUFFIXES
+    )
 
 
 def _classify_snap(snap: dict) -> str:
@@ -137,7 +162,15 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
             continue
 
         media_url = snap_urls.get("mediaUrl")
-        if not isinstance(media_url, str) or not media_url.startswith("http"):
+        if not isinstance(media_url, str):
+            continue
+        if not _is_allowed_media_url(media_url):
+            # Log it — either the schema changed (new CDN host to add to
+            # the allowlist) or something is feeding us hostile URLs.
+            logger.warning(
+                f"Snapchat: refusing mediaUrl on non-allowlisted host: "
+                f"{media_url[:100]}"
+            )
             continue
 
         # `timestampInSec` is a nested {"value": "<unix_seconds_string>"}.
@@ -165,9 +198,11 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
         preview_url = ""
         if isinstance(preview_node, dict):
             value = preview_node.get("value")
-            if isinstance(value, str) and value.startswith("http"):
+            if isinstance(value, str) and _is_allowed_media_url(value):
                 preview_url = value
-        elif isinstance(preview_node, str) and preview_node.startswith("http"):
+        elif isinstance(preview_node, str) and _is_allowed_media_url(
+            preview_node
+        ):
             preview_url = preview_node
 
         # `snapIndex` flows into the download filename and captions, so
