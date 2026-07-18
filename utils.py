@@ -28,8 +28,12 @@ URL_PATTERNS = {
     "twitch": re.compile(r"(https?://)?(www\.)?twitch\.tv/\S+"),
 }
 
-# Snapchat username command pattern: "snapchat <username>"
-SNAPCHAT_PATTERN = re.compile(r"^snapchat\s+([a-zA-Z0-9._-]+)$", re.IGNORECASE)
+# Snapchat username command pattern: "snapchat <username>".
+# Length-bounded: real Snapchat usernames are 3-15 characters; 32 leaves
+# margin while keeping absurd inputs out of URLs, filenames, and logs.
+SNAPCHAT_PATTERN = re.compile(
+    r"^snapchat\s+([a-zA-Z0-9._-]{1,32})$", re.IGNORECASE
+)
 
 
 def detect_platform(text: str) -> tuple[str, str] | tuple[None, None]:

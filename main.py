@@ -143,6 +143,11 @@ PLATFORM_LABELS = {
     "snapchat": "Snapchat",
 }
 
+# Longest message handle_message will consider. Supported URLs are well
+# under this; anything longer is junk that would otherwise flow into
+# yt-dlp, Playwright, and log lines. (Telegram's own cap is 4096.)
+MAX_INPUT_LENGTH = 1024
+
 # How long a Snapchat picker session is kept in memory before it's
 # considered stale and the user has to re-send the username.
 # v0.1.9: bumped from 120s → 300s to give multi-pick more breathing room
@@ -198,6 +203,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     text = update.message.text.strip()
+
+    # Length guard before any pattern matching: no legitimate supported
+    # URL or username command comes close to this. Keeps oversized junk
+    # out of yt-dlp, Playwright navigation, and log lines.
+    if len(text) > MAX_INPUT_LENGTH:
+        await update.message.reply_text(
+            "❌ Message too long to be a supported URL or command."
+        )
+        return
+
     platform, target = detect_platform(text)
 
     if not platform:
