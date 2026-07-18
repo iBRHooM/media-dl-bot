@@ -699,7 +699,7 @@ async def _download_and_send_all(
                         await query.message.reply_photo(f, caption=caption)
             except TelegramError as e:
                 logger.error(f"Failed to send story item: {e}")
-                await query.message.reply_text(f"❌ Failed to send one item: {e}")
+                await query.message.reply_text("❌ Failed to send one item.")
 
         await notice.delete()
     except Exception:
@@ -731,9 +731,11 @@ async def handle_quality_picker(
         try:
             file_path, title = await download_media(url)
             await _send_video(update, file_path, title, status)
-        except Exception as e:
+        except Exception:
+            # Full details are in the log; don't echo internals (paths,
+            # URLs, extractor output) into the chat.
             logger.exception(f"Fallback download failed for {url}")
-            await status.edit_text(f"❌ Download failed: {e}")
+            await status.edit_text("❌ Download failed. Check bot logs for details.")
         return
 
     # Telegram callback_data has a 64-byte limit, so we can't fit the URL.
@@ -778,9 +780,9 @@ async def handle_auto_download(
     try:
         file_path, title = await download_media(url)
         await _send_video(update, file_path, title, status)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Auto download failed for {url}")
-        await status.edit_text(f"❌ Download failed: {e}")
+        await status.edit_text("❌ Download failed. Check bot logs for details.")
 
 
 async def handle_quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -812,9 +814,9 @@ async def handle_quality_callback(update: Update, context: ContextTypes.DEFAULT_
     try:
         file_path, title = await download_media(url, actual_format)
         await _send_video(update, file_path, title, query.message)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Quality download failed for {url}")
-        await query.edit_message_text(f"❌ Download failed: {e}")
+        await query.edit_message_text("❌ Download failed. Check bot logs for details.")
     finally:
         # Clean up pending entry
         context.bot_data.get("pending_downloads", {}).pop(key, None)
@@ -849,7 +851,7 @@ async def _send_video(
 
     except TelegramError as e:
         logger.error(f"Failed to send video: {e}")
-        await status_msg.edit_text(f"❌ Upload failed: {e}")
+        await status_msg.edit_text("❌ Upload failed. Check bot logs for details.")
     finally:
         await cleanup_files(file_path)
 
