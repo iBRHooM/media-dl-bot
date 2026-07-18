@@ -37,3 +37,9 @@ services:
       - ./logs:/app/logs
     tmpfs:
       - /tmp
+    # Docker's default seccomp policy blocks the user-namespace syscalls
+    # Chromium's sandbox needs. This profile is Docker's default allowlist
+    # plus clone/setns/unshare (Playwright's official profile), letting the
+    # scraper run sandboxed without --no-sandbox or extra capabilities.
+    security_opt:
+      - seccomp:./seccomp_profile.json

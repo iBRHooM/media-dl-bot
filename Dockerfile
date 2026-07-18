@@ -29,7 +29,17 @@ COPY pyproject.toml README.md ./
 COPY *.py ./
 RUN pip install --no-cache-dir .
 
-# Create runtime directories with correct perms
-RUN mkdir -p /app/downloads /app/logs && chmod 755 /app/downloads /app/logs
+# Create runtime directories with correct perms, owned by the non-root user.
+# pwuser ships with the Playwright base image. When ./downloads and ./logs
+# are volume-mounted, the HOST directories must be owned by pwuser's uid
+# (see README deploy notes) or the bot cannot write to them.
+RUN mkdir -p /app/downloads /app/logs && \
+    chown -R pwuser:pwuser /app/downloads /app/logs && \
+    chmod 755 /app/downloads /app/logs
+
+# Run as non-root. Chromium's sandbox stays enabled (no --no-sandbox);
+# docker-compose loads seccomp_profile.json to permit the user-namespace
+# syscalls the sandbox requires.
+USER pwuser
 
 CMD ["python", "-u", "main.py"]

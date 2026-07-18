@@ -188,10 +188,11 @@ async def fetch_snapchat_stories(username: str) -> list[dict]:
 
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
-            )
+            # No --no-sandbox: the container runs as non-root (pwuser) and
+            # docker-compose loads seccomp_profile.json, which permits the
+            # user-namespace syscalls Chromium's own sandbox needs. Untrusted
+            # page content is rendered here, so the sandbox must stay on.
+            browser = await pw.chromium.launch(headless=True)
             try:
                 context = await browser.new_context(
                     user_agent=(
