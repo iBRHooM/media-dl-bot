@@ -82,6 +82,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
 
   bot:
     image: ghcr.io/ibrhoom/media-dl-bot:${IMAGE_TAG:-latest}
@@ -107,6 +112,11 @@ services:
     # as non-root with the sandbox enabled). File fetched in the next step.
     security_opt:
       - seccomp:./seccomp_profile.json
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
 ```
 
 The compose file references `seccomp_profile.json` (Playwright's official

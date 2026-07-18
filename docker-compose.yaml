@@ -19,6 +19,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    # Cap resources so a runaway process can't starve the host. The Bot
+    # API server is a lean C++ service that streams uploads; 1 GB is
+    # generous headroom.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
 
   bot:
     image: ghcr.io/ibrhoom/media-dl-bot:${IMAGE_TAG:-latest}
@@ -46,3 +54,13 @@ services:
     # scraper run sandboxed without --no-sandbox or extra capabilities.
     security_opt:
       - seccomp:./seccomp_profile.json
+    # Cap resources so a runaway Chromium/ffmpeg/download can't starve the
+    # host. Chromium scraping + ffmpeg remuxing + grid rendering fit
+    # comfortably in 2 GB; note the tmpfs /tmp above also counts toward
+    # this limit. If the container gets OOM-killed under the cap (visible
+    # in `docker inspect` / logs), raise memory rather than removing it.
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
