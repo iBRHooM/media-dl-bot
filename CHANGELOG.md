@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-18
+
+Security-hardening release from a full audit, plus a large-file upload
+fix found during verification. No user-facing feature changes.
+
+### Security
+- **Container now runs as non-root (`pwuser`) with Chromium's sandbox enabled.** Dropped `--no-sandbox`/`--disable-setuid-sandbox` from the Playwright launch and added Playwright's official seccomp profile (`seccomp_profile.json`, loaded via `security_opt`) so the sandbox's user-namespace syscalls are permitted. Untrusted Snapchat pages are no longer rendered as root with the sandbox off.
+- **Bot token redacted from all log output**, including exception tracebacks. The existing httpx/httpcore silencing couldn't cover an exception whose text embeds a `/bot<TOKEN>/` URL logged with a traceback; a redacting log formatter now scrubs the token from every record on both handlers.
+- **Bot API port 8081 no longer published to the host.** The bot reaches `telegram-bot-api` over the internal compose network; publishing on `0.0.0.0` exposed the token-driven API to the whole LAN.
+- **Snapchat media/preview URLs restricted to an allowlist** (`*.sc-cdn.net`, `*.snapchat.com`, https only) before download — SSRF defense against a spoofed or changed `__NEXT_DATA__` schema pointing at internal/metadata addresses.
+- **`ALLOWED_USERS` now enforced on both callback query handlers.** They were the only entry points without the auth guard.
+- **Only the matched URL is passed to yt-dlp**, not the full message text, closing a path where a platform pattern matching inside a crafted string could hand a foreign URL to the generic extractor.
+- **Scraped `snapIndex` coerced to int** before it reaches download filenames/captions; **input length bounded** (32-char username, 1024-char message).
+- **Unused `API_ID`/`API_HASH` removed from the bot service** env (only `telegram-bot-api` needs them), and **generic error messages** sent to chat instead of raw exception text (which could leak internal paths/URLs).
+
+### Fixed
+- **Large files no longer report a false "Timed out".** The self-hosted Bot API relays the whole file to Telegram before responding, so the response wait scales with file size; python-telegram-bot's 5s default `read_timeout` reproducibly failed a 144 MB upload that then succeeded seconds later. The per-upload `read_timeout` now scales with the file size (clamped to 30–300s). Pre-existing since the initial commit.
+- **Concurrent Snapchat downloads no longer collide.** Snap filenames gained a per-download uuid prefix; without it, two requests for the same username (or fast multi-taps) could share one path and one request's cleanup could delete a file another was still sending.
+
+### Changed
+- **Dependencies pinned and refreshed for reproducible builds:** Playwright `1.48.0 → 1.61.0` (with the base image `v1.48.0-noble → v1.61.0-noble`, refreshing a ~21-month-stale Chromium), aiohttp `3.10.10 → 3.14.1`, Pillow `>=10.0.0 → ==12.3.0`, yt-dlp now the pinned pip package `==2026.7.4` (the unpinned, unverified standalone binary fetch — and the `wget` that fetched it — were removed; the binary was never invoked). `telegram-bot-api` pinned to the `10.2` multi-arch digest.
+- **Resource limits added** to both compose services (bot: 2 CPU / 2 GB, telegram-bot-api: 1 CPU / 1 GB) so a runaway process can't starve the host.
+- **Disk-fill guard:** downloads exceeding the Telegram size cap are refused/aborted up front (yt-dlp `max_filesize`; streamed byte cap for Snapchat) instead of being fully written then rejected, and stale files are swept from the downloads dir at the start of each download.
+- **Snapchat picker TTL reduced to 2 minutes** and the grid message is now auto-deleted from the chat on expiry or Close (previously the caption was edited and the image left in place).
+
+### Deployment notes
+- The container now runs as non-root, so host `downloads/` and `logs/` must be owned by `pwuser`'s uid (typically `1001`; confirm with `docker compose exec bot id`). `seccomp_profile.json` must be present next to the compose file. Both are covered by a normal `git pull`; see the README.
+
 ## [0.1.9] - 2026-05-17
 
 ### Changed

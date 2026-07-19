@@ -8,6 +8,7 @@ Supported:
 
 import os
 import time
+import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
@@ -177,12 +178,10 @@ def _upload_read_timeout(file_size_bytes: int) -> float:
         min(UPLOAD_TIMEOUT_MAX_SECONDS, expected * 2),
     )
 
-# How long a Snapchat picker session is kept in memory before it's
-# considered stale and the user has to re-send the username.
-# v0.1.9: bumped from 120s → 300s to give multi-pick more breathing room
-# (the grid stays open after a single-snap download, so users naturally
-# want to come back and pick more without re-requesting the story).
-SNAPCHAT_PICKER_TTL_SECONDS = 300  # 5 minutes
+# How long a Snapchat picker session is kept alive (in memory and as a
+# chat message) before it expires and the grid is auto-deleted. Refreshed
+# on each successful pick, so it's measured from last activity.
+SNAPCHAT_PICKER_TTL_SECONDS = 120
 
 HELP_TEXT = """
 👋 *Media Downloader Bot*
@@ -316,7 +315,6 @@ async def handle_snapchat(
 
     Session state lives in `context.bot_data["snapchat_sessions"][key]`
     keyed by user_id + message_id so concurrent users don't collide.
-    Sessions expire after SNAPCHAT_PICKER_TTL_SECONDS (2 minutes).
     """
     status = None
     try:
@@ -357,7 +355,7 @@ async def handle_snapchat(
 
         # Send the grid as a photo. The status "Building..." message is
         # deleted on success to keep the chat tidy.
-        await update.message.reply_photo(
+        grid_msg = await update.message.reply_photo(
             photo=png,
             caption=(
                 f"👻 *@{escape_markdown(username)}* — {total} snap(s)\n"
@@ -367,6 +365,13 @@ async def handle_snapchat(
             parse_mode=ParseMode.MARKDOWN,
         )
         await status.delete()
+
+        # Track the grid message so the expiry watchdog can delete it,
+        # then start the watchdog for this session.
+        sessions[key]["grid_message"] = grid_msg
+        context.application.create_task(
+            _expire_snapchat_session(context, key)
+        )
 
     except (ValueError, RuntimeError) as e:
         if status is not None:
@@ -394,6 +399,40 @@ def _purge_expired_snapchat_sessions(sessions: dict) -> None:
     ]
     for k in expired:
         sessions.pop(k, None)
+
+
+async def _expire_snapchat_session(
+    context: ContextTypes.DEFAULT_TYPE, key: str
+) -> None:
+    """
+    Delete a picker grid once its TTL fully elapses.
+
+    Sleeps until the session's deadline. Because each successful pick
+    refreshes `created_at`, on waking we recompute the remaining time and
+    re-sleep if the user has been active. When the deadline has genuinely
+    passed, drop the session and delete the grid message from the chat.
+    Exits quietly if the session is already gone (Close / Download-all).
+    """
+    sessions = context.bot_data.get("snapchat_sessions", {})
+    while True:
+        session = sessions.get(key)
+        if session is None:
+            return  # closed / completed elsewhere
+        elapsed = time.time() - session.get("created_at", 0)
+        remaining = SNAPCHAT_PICKER_TTL_SECONDS - elapsed
+        if remaining <= 0:
+            break
+        await asyncio.sleep(remaining)
+
+    session = sessions.pop(key, None)
+    if session is None:
+        return
+    grid_msg = session.get("grid_message")
+    if grid_msg is not None:
+        try:
+            await grid_msg.delete()
+        except TelegramError:
+            pass  # already deleted, or too old for the bot to delete
 
 
 def _build_grid_keyboard(
@@ -526,16 +565,8 @@ async def handle_snapchat_callback(
     if action == "cancel":
         sessions.pop(key, None)
         try:
-            # Update the grid caption and remove buttons. We keep the
-            # grid image so the user can scroll back and see what was
-            # offered without re-requesting.
-            await query.edit_message_caption(
-                caption=(
-                    f"👻 *@{escape_markdown(username)}* — picker closed."
-                ),
-                reply_markup=None,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            # Delete the grid message entirely on Close.
+            await query.message.delete()
         except TelegramError:
             pass
         return
