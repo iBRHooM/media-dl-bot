@@ -6,6 +6,7 @@
 # Runtime artifacts
 downloads/
 logs/
+telegram-bot-api-data/
 *.log
 
 # Python
@@ -43,3 +44,7 @@ ENV/
 # Docker
 docker-compose.override.yaml
 docker-compose.override.yml
+
+# Local Claude Code project instructions / settings (not for the public repo)
+CLAUDE.md
+.claude/

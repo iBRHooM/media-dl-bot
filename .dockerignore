@@ -11,6 +11,7 @@
 # Runtime artifacts (mounted in via volumes, not baked in)
 downloads/
 logs/
+telegram-bot-api-data/
 *.log
 
 # Python build artifacts
@@ -33,8 +34,12 @@ venv/
 *.swp
 .DS_Store
 
+# Local tooling config (not for the image or its build context)
+.claude/
+
 # Documentation / project files (not needed in image)
 CHANGELOG.md
+CLAUDE.md
 context.md
 docker-compose.yaml
 docker-compose.dev.yaml
