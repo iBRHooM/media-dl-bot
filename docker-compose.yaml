@@ -32,7 +32,7 @@ services:
           memory: 1G
 
   bot:
-    image: ghcr.io/ibrhoom/media-dl-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/ibrhoom/media-dl-bot:latest
     container_name: media-dl-bot
     restart: unless-stopped
     depends_on:

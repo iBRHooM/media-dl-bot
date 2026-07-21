@@ -330,7 +330,7 @@ async def handle_snapchat(
         )
 
         # Build page 0 of the grid.
-        png, page_count, page_size = await build_story_grid(media_items, page=0)
+        png, page_count, _ = await build_story_grid(media_items, page=0)
 
         # Store session. Same `bot_data` pattern as the YouTube quality picker,
         # but keyed under its own namespace so the two don't clash.
@@ -629,7 +629,7 @@ async def handle_snapchat_callback(
         if success:
             session.setdefault("picked", set()).add(snap_idx)
             # Refresh the session timestamp too — the user is actively
-            # using the picker, so the 5-minute TTL should restart.
+            # using the picker, so the 2-minute TTL should restart.
             session["created_at"] = time.time()
 
             # Figure out which page the picked snap is on so we re-render

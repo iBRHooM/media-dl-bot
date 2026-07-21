@@ -3,7 +3,7 @@
 ## Build from source (Docker)
 
 ```bash
-git clone https://github.com/ibrhoom/media-dl-bot.git
+git clone https://github.com/iBRHooM/media-dl-bot.git
 cd media-dl-bot
 cp .env.example .env
 nano .env

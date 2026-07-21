@@ -34,10 +34,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ibrhoom/media-dl-bot"
-Repository = "https://github.com/ibrhoom/media-dl-bot"
-Issues = "https://github.com/ibrhoom/media-dl-bot/issues"
-Changelog = "https://github.com/ibrhoom/media-dl-bot/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/iBRHooM/media-dl-bot"
+Repository = "https://github.com/iBRHooM/media-dl-bot"
+Issues = "https://github.com/iBRHooM/media-dl-bot/issues"
+Changelog = "https://github.com/iBRHooM/media-dl-bot/blob/main/CHANGELOG.md"
 
 [project.scripts]
 media-dl-bot = "main:main"

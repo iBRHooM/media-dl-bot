@@ -108,7 +108,7 @@ async def fetch_formats(url: str) -> tuple[list[dict], str, int]:
     Fetch available formats for a URL.
     Returns (quality_options, title, duration).
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _fetch():
         # `playlist_items='1'` is critical for Twitter quote-tweets: yt-dlp
@@ -237,7 +237,7 @@ async def download_media(url: str, format_id: Optional[str] = None) -> tuple[str
     output_template = str(downloads_dir / f"{unique}_%(id)s.%(ext)s")
 
     opts = _build_ydl_opts(output_template, format_id)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _download():
         with yt_dlp.YoutubeDL(opts) as ydl:

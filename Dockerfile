@@ -5,7 +5,7 @@
 FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
 
 # OCI image labels (recognized by GHCR / Docker Hub for source linking)
-LABEL org.opencontainers.image.source="https://github.com/ibrhoom/media-dl-bot"
+LABEL org.opencontainers.image.source="https://github.com/iBRHooM/media-dl-bot"
 LABEL org.opencontainers.image.description="Self-hosted Telegram bot for media downloads"
 LABEL org.opencontainers.image.licenses="MIT"
 

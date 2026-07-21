@@ -1,12 +1,12 @@
 # Media Downloader Bot
 
-[![Release](https://img.shields.io/github/v/release/ibrhoom/media-dl-bot?include_prereleases&sort=semver)](https://github.com/ibrhoom/media-dl-bot/releases)
+[![Release](https://img.shields.io/github/v/release/iBRHooM/media-dl-bot?include_prereleases&sort=semver)](https://github.com/iBRHooM/media-dl-bot/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Docker Image](https://img.shields.io/badge/ghcr.io-media--dl--bot-blue?logo=docker)](https://github.com/ibrhoom/media-dl-bot/pkgs/container/media-dl-bot)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-media--dl--bot-blue?logo=docker)](https://github.com/iBRHooM/media-dl-bot/pkgs/container/media-dl-bot)
 
 A self-hosted Telegram bot that downloads media from YouTube, TikTok, X / Twitter, Facebook, Instagram, Twitch, and Snapchat stories.
 
-Built on `python-telegram-bot` v22.7 + `yt-dlp` + `Playwright`. Runs against a self-hosted Telegram Bot API server for **2 GB upload limits** (vs. the 50 MB limit on the public API).
+Built on `python-telegram-bot` + `yt-dlp` + `Playwright` (exact versions are pinned in `pyproject.toml`). Runs against a self-hosted Telegram Bot API server for **2 GB upload limits** (vs. the 50 MB limit on the public API).
 
 ---
 
@@ -90,7 +90,7 @@ services:
           memory: 1G
 
   bot:
-    image: ghcr.io/ibrhoom/media-dl-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/ibrhoom/media-dl-bot:latest
     container_name: media-dl-bot
     restart: unless-stopped
     depends_on:
@@ -164,11 +164,6 @@ ALLOWED_USERS=
 # Default: 1900 (leaves headroom under the 2 GB hard cap)
 MAX_FILE_SIZE_MB=1900
 
-# Pin the bot image to a specific version. If omitted, `latest` is pulled.
-# Recommended: pin in production so updates are deliberate, not surprise breakages.
-# Example: IMAGE_TAG=0.1.0
-IMAGE_TAG=latest
-
 # Timezone for displaying Snapchat story post timestamps in Telegram captions.
 # Use any IANA timezone name (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
 # Examples: Asia/Riyadh, Europe/London, America/New_York, UTC
@@ -222,7 +217,6 @@ Quick reference for the variables in `.env`:
 | `ALLOWED_USERS` | optional | *empty* | Comma-separated Telegram user IDs allowed to use the bot. Empty = open to everyone. |
 | `MAX_FILE_SIZE_MB` | optional | `1900` | Max file size to upload. Hard cap 2000 MB. |
 | `TZ` | optional | `Asia/Riyadh` | IANA timezone for Snapchat story post timestamps in captions. |
-| `IMAGE_TAG` | optional | `latest` | Pin the bot image to a specific version (e.g. `0.1.0`). |
 
 ---
 
@@ -232,7 +226,7 @@ Quick reference for the variables in `.env`:
 docker compose up -d --pull always
 ```
 
-`--pull always` forces a registry check, which matters when you're tracking the floating `latest` tag. If you've pinned `IMAGE_TAG` to a specific version in `.env`, just bump the value and run `docker compose up -d` — switching tags is enough on its own.
+`--pull always` forces a registry check so the floating `latest` tag actually updates. To run a specific version instead, change the bot image tag in `docker-compose.yaml` (e.g. `ghcr.io/ibrhoom/media-dl-bot:0.2.0`) and run `docker compose up -d`.
 
 ---
 

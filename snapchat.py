@@ -13,10 +13,14 @@ content types under different keys.
 Each item in `snapList` looks like:
     {
         "snapIndex": 0,
-        "createTime": "2024-10-16T19:01:13.000Z",
-        "mediaPreviewUrl": ".../EgLargeThumbnail",  -- thumbnail
-        "mediaUrl":        ".../DfMedia",            -- real media file
-        "mediaType":       "VIDEO" | "IMAGE"  (sometimes absent)
+        "snapMediaType": 1,                       # integer enum: 0=IMAGE, 1=VIDEO
+        "timestampInSec": {"value": "1729105273"},  # nested; sometimes int/absent
+        "snapUrls": {
+            "mediaUrl": "https://cf-st.sc-cdn.net/...",       -- real media file
+            "mediaPreviewUrl": {"value": "https://..."},       -- 256px thumbnail
+            "overlayUrl": null,
+            "attachmentUrl": null
+        }
     }
 """
 
@@ -152,7 +156,6 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
     logger.info(f"Snapchat: pageProps.story.snapList has {len(snap_list)} items")
 
     items: list[dict] = []
-    total = len(snap_list)
     for snap in snap_list:
         if not isinstance(snap, dict):
             continue
@@ -219,7 +222,6 @@ def _extract_stories_from_next_data(data: dict) -> list[dict]:
             "preview_url": preview_url,
             "type": _classify_snap(snap),
             "index": index,
-            "total": total,
             "timestamp": timestamp,
         })
 
@@ -230,7 +232,8 @@ async def fetch_snapchat_stories(username: str) -> list[dict]:
     """
     Scrape active public stories for a Snapchat username.
 
-    Returns a list of dicts: [{ url, type, index }, ...].
+    Returns a list of dicts, one per snap:
+        { url, preview_url, type, index, timestamp }
     Raises ValueError if the profile is missing, private, or has no
     active stories.
     Raises RuntimeError on unexpected scraping failures.
@@ -544,16 +547,12 @@ def _draw_number(draw: ImageDraw.ImageDraw, n: int, x: int, y: int) -> None:
     """
     font = _load_number_font(48)
     text = str(n)
-    try:
-        bbox = draw.textbbox((x, y), text, font=font, stroke_width=3)
-        pad = 6
-        draw.rectangle(
-            [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
-            fill=(0, 0, 0, 180),
-        )
-    except AttributeError:
-        # Very old Pillow — skip the background, outline alone is fine.
-        pass
+    bbox = draw.textbbox((x, y), text, font=font, stroke_width=3)
+    pad = 6
+    draw.rectangle(
+        [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+        fill=(0, 0, 0, 180),
+    )
     draw.text(
         (x, y),
         text,
