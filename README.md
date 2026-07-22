@@ -175,7 +175,7 @@ TZ=Asia/Riyadh
 
 The container runs as a non-root user (`pwuser`), so the mounted
 `downloads/` and `logs/` directories must be writable by its uid —
-typically **1001** in the Playwright base image:
+**1001** (the image's non-root `pwuser`):
 
 ```bash
 mkdir -p downloads logs
@@ -198,7 +198,7 @@ You should see:
 
 ```
 Using local Bot API: http://telegram-bot-api:8081
-Bot started (media-dl-bot v0.2.0).
+Bot started (media-dl-bot v0.2.1).
 ```
 
 Send `/start` to your bot in Telegram.
@@ -226,7 +226,7 @@ Quick reference for the variables in `.env`:
 docker compose up -d --pull always
 ```
 
-`--pull always` forces a registry check so the floating `latest` tag actually updates. To run a specific version instead, change the bot image tag in `docker-compose.yaml` (e.g. `ghcr.io/ibrhoom/media-dl-bot:0.2.0`) and run `docker compose up -d`.
+`--pull always` forces a registry check so the floating `latest` tag actually updates to the newest release — recommended, so you always get the latest fixes and features.
 
 ---
 

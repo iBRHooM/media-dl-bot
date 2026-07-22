@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-22
+
+### Changed
+- **Docker image roughly halved (~2.6 GB → ~1.6 GB).** Replaced the `mcr.microsoft.com/playwright/python` base — which bundled Chromium **plus** Firefox and WebKit and all their OS dependencies — with a lean `ubuntu:24.04` build that installs **Chromium only** (`playwright install --with-deps chromium`); the scraper uses `chromium.launch` exclusively, so Firefox/WebKit were pure dead weight. Chromium is downloaded as the non-root `pwuser` so the browser tree is never touched by a recursive `chown` (a separate-layer `chown -R` was duplicating ~674 MB via overlayfs copy-up). No behavior, deploy, or config change — same non-root `pwuser` (uid 1001), same seccomp profile, same sandbox.
+
 ## [0.2.0] - 2026-07-19
 
 Security-hardening release from a full audit, plus a large-file upload
@@ -115,6 +120,7 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
+[0.2.1]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.0
 [0.1.9]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.1.9
 [0.1.8]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.1.8
