@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-07-22
 
 ### Changed
-- **Docker image roughly halved (~2.6 GB → ~1.6 GB).** Replaced the `mcr.microsoft.com/playwright/python` base — which bundled Chromium **plus** Firefox and WebKit and all their OS dependencies — with a lean `ubuntu:24.04` build that installs **Chromium only** (`playwright install --with-deps chromium`); the scraper uses `chromium.launch` exclusively, so Firefox/WebKit were pure dead weight. Chromium is downloaded as the non-root `pwuser` so the browser tree is never touched by a recursive `chown` (a separate-layer `chown -R` was duplicating ~674 MB via overlayfs copy-up). No behavior, deploy, or config change — same non-root `pwuser` (uid 1001), same seccomp profile, same sandbox.
+- **Docker image roughly halved (~2.6 GB → ~1.6 GB).** Replaced the `mcr.microsoft.com/playwright/python` base — which bundled Chromium **plus** Firefox and WebKit and all their OS dependencies — with a lean `ubuntu:24.04` build that installs **Chromium only**; the scraper uses `chromium.launch` exclusively, so Firefox/WebKit were pure dead weight. Chromium's OS-level deps are installed as root (`playwright install-deps chromium`), then the browser itself is downloaded as the non-root `pwuser` (`playwright install chromium`) so the browser tree is never touched by a recursive `chown` (a separate-layer `chown -R` was duplicating ~674 MB via overlayfs copy-up). No behavior, deploy, or config change — same non-root `pwuser` (uid 1001), same seccomp profile, same sandbox.
 
 ## [0.2.0] - 2026-07-19
 
