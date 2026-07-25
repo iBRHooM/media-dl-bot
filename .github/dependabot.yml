@@ -8,12 +8,13 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      # Only `interval`, `day`, `time` and `timezone` are accepted here —
-      # a `cron` key is rejected by Dependabot's schema. `day` is honoured
-      # for weekly intervals only, so a monthly check lands on Dependabot's
-      # own day-of-month and just the time is ours.
-      interval: "monthly"
-      time: "01:00"
+      # Monthly cadence with a defined day: 01:00 on the 1st of every month.
+      # Plain `interval: monthly` leaves the day-of-month up to Dependabot
+      # (GitHub doesn't document it) and `schedule.day` is honoured for
+      # weekly intervals only. The cron expression key is `cronjob` — a
+      # plain `cron` key is rejected by the schema.
+      interval: "cron"
+      cronjob: "0 1 1 * *"
       timezone: "Asia/Riyadh"
     # One PR for all pending action bumps instead of up to six.
     groups:
