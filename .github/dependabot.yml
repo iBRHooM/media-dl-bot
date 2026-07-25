@@ -1,0 +1,21 @@
+version: 2
+
+# The release workflow's actions are pinned to commit SHAs (so a moving
+# `@vN` tag can never silently change what runs). Pinning trades "silently
+# updated" for "silently stale", so Dependabot watches for new releases and
+# opens a PR with the new SHA + version comment.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      # `day` is only honoured for weekly intervals, so monthly checks land
+      # on Dependabot's own day-of-month — only the time is ours.
+      time: "01:00"
+      timezone: "Asia/Riyadh"
+    # One PR for all pending action bumps instead of up to six.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
