@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-07-25
+
+### Fixed
+- **Snapchat grid picker no longer left orphaned in the chat after "⭐ Download all".** The bulk path dropped the session and then *edited* the grid caption instead of deleting the message, which left it permanently undeletable: clearing the session made the TTL watchdog return early without deleting, and stripping the keyboard removed the ❌ Close button — the only remaining manual delete path. "Download all" now deletes the grid message outright on success, exactly like Close. A failed bulk download no longer destroys the picker either: the grid and its buttons stay live (with the 2-minute TTL refreshed) so the story can be retried or grabbed snap by snap.
+
 ## [0.2.1] - 2026-07-22
 
 ### Changed
@@ -120,6 +125,7 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
+[0.2.2]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.2
 [0.2.1]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.0
 [0.1.9]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.1.9
