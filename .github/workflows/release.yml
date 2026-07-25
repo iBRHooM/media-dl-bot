@@ -24,7 +24,6 @@ jobs:
     permissions:
       contents: read
       packages: write           # required to push to GHCR
-      id-token: write           # required for Sigstore/cosign signing
 
     steps:
       - name: Checkout
