@@ -652,21 +652,23 @@ async def handle_snapchat_callback(
         return
 
     if action == "all":
-        await _download_and_send_all(update, context, session)
-        # "Download all" ends the session — clear the picker UI entirely
-        # by removing the keyboard and updating the caption.
-        sessions.pop(key, None)
-        try:
-            await query.edit_message_caption(
-                caption=(
-                    f"👻 *@{escape_markdown(username)}* — all "
-                    f"{total} snap(s) downloaded ✅"
-                ),
-                reply_markup=None,
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        except TelegramError as e:
-            logger.warning(f"Could not close picker after 'all': {e}")
+        success = await _download_and_send_all(update, context, session)
+        if success:
+            # "Download all" ends the session — delete the grid message
+            # outright, same as Close. Editing the caption instead would
+            # orphan the message: popping the session makes the expiry
+            # watchdog bail early, and dropping the keyboard removes the
+            # only manual delete path.
+            sessions.pop(key, None)
+            try:
+                await query.message.delete()
+            except TelegramError:
+                pass
+        else:
+            # Bulk download failed outright — keep the picker alive so the
+            # user can retry or fall back to picking snaps individually.
+            # Refresh the TTL so they get a full window to do it.
+            session["created_at"] = time.time()
         return
 
 
@@ -745,8 +747,15 @@ async def _download_and_send_all(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     session: dict,
-) -> None:
-    """Bulk download every snap in the story (mirrors pre-v0.1.8 behaviour)."""
+) -> bool:
+    """
+    Bulk download every snap in the story (mirrors pre-v0.1.8 behaviour).
+
+    Returns True if the batch ran (even if individual items were skipped
+    as oversized or failed to send), False only if nothing could be
+    downloaded at all. The caller uses this to decide whether to tear the
+    picker down or leave it up for a retry.
+    """
     query = update.callback_query
     username = session["username"]
     media_items = session["media_items"]
@@ -759,7 +768,7 @@ async def _download_and_send_all(
         downloaded = await download_story_media(media_items, username)
         if not downloaded:
             await notice.edit_text("❌ Could not download any story items.")
-            return
+            return False
 
         await notice.edit_text(f"📤 Sending {len(downloaded)} item(s)...")
 
@@ -787,12 +796,14 @@ async def _download_and_send_all(
                 await query.message.reply_text("❌ Failed to send one item.")
 
         await notice.delete()
+        return True
     except Exception:
         logger.exception("Failed bulk Snapchat download")
         try:
             await notice.edit_text("❌ An unexpected error occurred.")
         except TelegramError:
             pass
+        return False
     finally:
         await cleanup_files(*[t[0] for t in downloaded])
 
