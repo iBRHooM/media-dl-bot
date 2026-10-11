@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-10-11
+
+### Security
+- **`aiohttp` 3.14.1 → 3.14.3**, resolving three published advisories: **CVE-2026-69244** (high — out-of-bounds heap read in the C HTTP response parser's error path on a malformed chunked response), **CVE-2026-69243** (request smuggling via WebSocket upgrade) and **CVE-2026-59881** (WebSocket client accepting compressed frames without negotiated permessage-deflate). Only the first is reachable here: the bot uses `aiohttp.ClientSession` for Snapchat CDN downloads (restricted to the `*.sc-cdn.net` / `*.snapchat.com` allowlist) and has no WebSocket or server code. Patch-level bump, no API changes.
+
+### Changed
+- CI release workflow: all actions pinned to commit SHAs (with `# vX.Y.Z` comments) and kept current by a grouped monthly Dependabot config; the unused `id-token: write` permission was dropped. No effect on the built image.
+
 ## [0.2.2] - 2026-07-25
 
 ### Fixed
@@ -125,6 +133,7 @@ Initial beta release.
 - Configurable max file size (`MAX_FILE_SIZE_MB`, hard cap 2000).
 - Per-download unique filename prefix to avoid collisions on concurrent requests.
 
+[0.2.3]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.3
 [0.2.2]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.2
 [0.2.1]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iBRHooM/media-dl-bot/releases/tag/v0.2.0
